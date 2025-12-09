@@ -10,7 +10,8 @@ pymysql==1.1.0
 cryptography==42.0.0
 
 # Data Collection
-finance-datareader==0.9.50
+finance-datareader==0.9.91
+plotly>=5.24.1
 pykrx>=1.0.51
 yfinance==0.2.36
 pandas==2.1.4

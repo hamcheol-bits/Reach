@@ -57,6 +57,54 @@ try:
 except Exception as e:
     print(f"❌ 삼성전자 주가 실패: {e}")
 
+# 5. S&P 500 종목 리스트 테스트
+print("\n5. S&P 500 종목 리스트 테스트")
+print("-" * 60)
+try:
+    sp500 = fdr.StockListing('S&P500')
+    print(f"✅ S&P 500 성공: {len(sp500)}개 종목")
+    print(f"컬럼: {sp500.columns.tolist()}")
+    print("\n샘플 데이터 (상위 10개):")
+    print(sp500.head(10))
+except Exception as e:
+    print(f"❌ S&P 500 실패: {e}")
+
+# 6. Apple(AAPL) 주가 테스트
+print("\n6. Apple(AAPL) 주가 데이터 테스트")
+print("-" * 60)
+try:
+    aapl = fdr.DataReader('AAPL', '2024-01-01', '2024-12-31')
+    print(f"✅ Apple 주가 성공: {len(aapl)}개 레코드")
+    print(f"컬럼: {aapl.columns.tolist()}")
+    print("\n최근 5일 데이터:")
+    print(aapl.tail())
+except Exception as e:
+    print(f"❌ Apple 주가 실패: {e}")
+
+# 7. NASDAQ 100 종목 리스트 테스트
+print("\n7. NASDAQ 100 종목 리스트 테스트")
+print("-" * 60)
+try:
+    nasdaq100 = fdr.StockListing('NASDAQ100')
+    print(f"✅ NASDAQ 100 성공: {len(nasdaq100)}개 종목")
+    print(f"컬럼: {nasdaq100.columns.tolist()}")
+    print("\n샘플 데이터 (상위 10개):")
+    print(nasdaq100.head(10))
+except Exception as e:
+    print(f"❌ NASDAQ 100 실패: {e}")
+
+# 8. Microsoft(MSFT) 주가 테스트
+print("\n8. Microsoft(MSFT) 주가 데이터 테스트")
+print("-" * 60)
+try:
+    msft = fdr.DataReader('MSFT', '2024-01-01', '2024-12-31')
+    print(f"✅ Microsoft 주가 성공: {len(msft)}개 레코드")
+    print(f"컬럼: {msft.columns.tolist()}")
+    print("\n최근 5일 데이터:")
+    print(msft.tail())
+except Exception as e:
+    print(f"❌ Microsoft 주가 실패: {e}")
+
 print("\n" + "=" * 60)
 print("테스트 완료")
 print("=" * 60)

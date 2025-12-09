@@ -64,7 +64,11 @@ async def batch_collect_us_market(
     background_tasks: BackgroundTasks,
     tickers: Optional[List[str]] = Query(
         None,
-        description="수집할 티커 리스트 (미지정시 S&P 500 샘플 사용)"
+        description="수집할 티커 리스트 (미지정 시 collect_all 옵션 확인)"
+    ),
+    collect_all: bool = Query(
+        False,
+        description="True면 DB의 모든 US 종목 수집"
     ),
     incremental: bool = Query(True, description="증분 업데이트 여부"),
     db: Session = Depends(get_db)
@@ -72,24 +76,33 @@ async def batch_collect_us_market(
     """
     미국 시장 배치 수집
 
-    - tickers: 수집할 티커 리스트 (예: ["AAPL", "MSFT", "GOOGL"])
-    - incremental: True면 마지막 수집일 이후만, False면 전체 1년치
+    **옵션 1: 특정 티커 리스트 수집**
+    - tickers: ["AAPL", "MSFT", "GOOGL"] 등
+
+    **옵션 2: DB의 모든 US 종목 수집**
+    - collect_all=true
+    - 먼저 `/api/v1/us/collect/all-stocks`로 종목 리스트 수집 필요
 
     **주의**: API 속도 제한으로 인해 시간이 오래 걸립니다
-    (Twelve Data: 8 requests/min → 10개 종목당 ~12분)
+    - Twelve Data: 8 requests/min
+    - 100개 종목: 약 2시간
+    - 1000개 종목: 약 20시간
+
+    **권장**: 소규모 테스트 후 야간/주말에 전체 수집
     """
     collector = BatchCollector()
 
-    # 티커가 지정되지 않으면 S&P 500 샘플 사용
-    if not tickers:
-        tickers = collector.us_collector.sp500_sample
-
     try:
-        result = collector.collect_us_batch(db, tickers, incremental)
+        result = collector.collect_us_batch(
+            db,
+            tickers=tickers,
+            incremental=incremental,
+            collect_all=collect_all
+        )
 
         return {
             "status": "success",
-            "message": f"Batch collection for {len(tickers)} US stocks completed",
+            "message": f"Batch collection for US stocks completed",
             "result": result
         }
 
@@ -109,7 +122,11 @@ async def batch_collect_all_markets(
     ),
     us_tickers: Optional[List[str]] = Query(
         None,
-        description="미국 티커 리스트 (미지정시 S&P 500 샘플)"
+        description="미국 티커 리스트 (us_collect_all=False일 때 사용)"
+    ),
+    us_collect_all: bool = Query(
+        False,
+        description="True면 DB의 모든 US 종목 수집"
     ),
     incremental: bool = Query(True, description="증분 업데이트 여부"),
     db: Session = Depends(get_db)
@@ -118,20 +135,23 @@ async def batch_collect_all_markets(
     전체 시장 배치 수집 (한국 + 미국)
 
     - korea_markets: 한국 시장 리스트 (기본: ["KOSPI", "KOSDAQ"])
-    - us_tickers: 미국 티커 리스트 (기본: S&P 500 샘플)
+    - us_tickers: 미국 티커 리스트 (us_collect_all=False일 때)
+    - us_collect_all: True면 DB의 모든 US 종목 수집
     - incremental: True면 마지막 수집일 이후만
 
-    **경고**: 전체 수집은 매우 오래 걸립니다 (수 시간)
-    테스트는 개별 시장별로 먼저 진행하는 것을 권장합니다.
+    **경고**: 전체 수집은 매우 오래 걸립니다
+    - 한국: KOSPI + KOSDAQ = 약 1.5시간
+    - 미국: 종목 수에 따라 수 시간 ~ 수십 시간
+
+    **권장 순서:**
+    1. 먼저 `/api/v1/us/collect/all-stocks`로 US 종목 리스트 수집
+    2. 그 다음 이 API로 가격 데이터 수집 (us_collect_all=true)
     """
     collector = BatchCollector()
 
     # 기본값 설정
     if not korea_markets:
         korea_markets = ['KOSPI', 'KOSDAQ']
-
-    if not us_tickers:
-        us_tickers = collector.us_collector.sp500_sample
 
     # 유효성 검사
     for market in korea_markets:
@@ -146,6 +166,7 @@ async def batch_collect_all_markets(
             db,
             korea_markets,
             us_tickers,
+            us_collect_all,
             incremental
         )
 

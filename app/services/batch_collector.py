@@ -168,29 +168,42 @@ class BatchCollector:
     def collect_us_batch(
         self,
         db: Session,
-        tickers: List[str],
-        incremental: bool = True
+        tickers: List[str] = None,
+        incremental: bool = True,
+        collect_all: bool = False
     ) -> Dict:
         """
         미국 시장 배치 수집
 
         Args:
             db: 데이터베이스 세션
-            tickers: 수집할 티커 리스트
+            tickers: 수집할 티커 리스트 (collect_all=False일 때 사용)
             incremental: 증분 업데이트 여부
+            collect_all: True면 DB의 모든 US 종목 수집
 
         Returns:
             수집 결과 딕셔너리
         """
         print(f"\n{'='*60}")
         print(f"🚀 Starting US market batch collection")
-        print(f"   Tickers: {len(tickers)}")
-        print(f"   Mode: {'Incremental' if incremental else 'Full'}")
+
+        # collect_all이 True면 DB에서 모든 US 종목 조회
+        if collect_all:
+            print(f"   Mode: Collect ALL US stocks from DB")
+            us_stocks = db.query(Stock).filter(Stock.country == 'US').all()
+            tickers = [stock.ticker for stock in us_stocks]
+            print(f"   Found {len(tickers)} US stocks in database")
+        else:
+            print(f"   Mode: Collect specified tickers")
+            print(f"   Tickers: {len(tickers) if tickers else 0}")
+
+        print(f"   Incremental: {'Yes' if incremental else 'No (Full)'}")
         print(f"{'='*60}\n")
 
         start_time = datetime.now()
         results = {
             'market': 'US',
+            'collect_all': collect_all,
             'start_time': start_time.isoformat(),
             'stocks_processed': 0,
             'stocks_success': 0,
@@ -199,15 +212,27 @@ class BatchCollector:
             'errors': []
         }
 
+        if not tickers:
+            print("⚠️  No tickers to process")
+            results['end_time'] = datetime.now().isoformat()
+            results['duration_seconds'] = 0
+            return results
+
         for idx, ticker in enumerate(tickers, 1):
             results['stocks_processed'] += 1
 
             try:
                 print(f"[{idx}/{len(tickers)}] Processing {ticker}...")
 
-                # 1. 주식 정보 저장
-                if not self.us_collector.save_stock_to_db(db, ticker):
-                    raise Exception("Failed to save stock info")
+                # 1. 주식 정보가 DB에 있는지 확인
+                stock = db.query(Stock).filter(Stock.ticker == ticker).first()
+
+                if not stock:
+                    # DB에 없으면 정보 수집 시도
+                    print(f"   ↳ Stock not in DB, fetching info...")
+                    if not self.us_collector.save_stock_to_db(db, ticker):
+                        raise Exception("Failed to save stock info")
+                    stock = db.query(Stock).filter(Stock.ticker == ticker).first()
 
                 # 2. 가격 데이터 수집
                 start_date = None
@@ -230,8 +255,8 @@ class BatchCollector:
 
                 print(f"   ✅ Saved {price_count} price records\n")
 
-                # API 속도 제한 (Finnhub: 60/min, Twelve Data: 8/min)
-                # 안전하게 10초 대기
+                # API 속도 제한 (Twelve Data: 8/min)
+                # 10초 대기 = 시간당 360개 (안전)
                 if idx < len(tickers):
                     time.sleep(10)
 
@@ -256,7 +281,7 @@ class BatchCollector:
         print(f"  - Success: {results['stocks_success']}")
         print(f"  - Failed: {results['stocks_failed']}")
         print(f"Price records saved: {results['prices_saved']}")
-        print(f"Duration: {duration:.1f} seconds")
+        print(f"Duration: {duration/60:.1f} minutes")
         print(f"{'='*60}\n")
 
         return results
@@ -266,6 +291,7 @@ class BatchCollector:
         db: Session,
         korea_markets: List[str] = None,
         us_tickers: List[str] = None,
+        us_collect_all: bool = False,
         incremental: bool = True
     ) -> Dict:
         """
@@ -274,7 +300,8 @@ class BatchCollector:
         Args:
             db: 데이터베이스 세션
             korea_markets: 한국 시장 리스트 (기본: ['KOSPI', 'KOSDAQ'])
-            us_tickers: 미국 티커 리스트
+            us_tickers: 미국 티커 리스트 (us_collect_all=False일 때 사용)
+            us_collect_all: True면 DB의 모든 US 종목 수집
             incremental: 증분 업데이트 여부
 
         Returns:
@@ -283,8 +310,8 @@ class BatchCollector:
         if korea_markets is None:
             korea_markets = ['KOSPI', 'KOSDAQ']
 
-        if us_tickers is None:
-            # S&P 500 샘플 사용
+        if us_tickers is None and not us_collect_all:
+            # 기본값: 샘플 사용 (레거시)
             us_tickers = self.us_collector.sp500_sample
 
         start_time = datetime.now()
@@ -304,7 +331,12 @@ class BatchCollector:
             all_results['total_prices_saved'] += result['prices_saved']
 
         # 미국 시장 수집
-        us_result = self.collect_us_batch(db, us_tickers, incremental)
+        us_result = self.collect_us_batch(
+            db,
+            tickers=us_tickers,
+            incremental=incremental,
+            collect_all=us_collect_all
+        )
         all_results['us'] = us_result
         all_results['total_stocks_processed'] += us_result['stocks_processed']
         all_results['total_prices_saved'] += us_result['prices_saved']

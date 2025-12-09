@@ -110,6 +110,115 @@ async def collect_us_stock_prices(
         )
 
 
+@router.post("/collect/all-stocks")
+async def collect_all_us_stocks(
+        exchanges: Optional[List[str]] = Query(
+            None,
+            description="거래소 리스트 (미지정시 전체: US = NYSE + NASDAQ + 기타)"
+        ),
+        filter_common: bool = Query(
+            True,
+            description="일반 주식만 필터링 (ETF, Warrant 등 제외)"
+        ),
+        db: Session = Depends(get_db)
+):
+    """
+    미국 전체 주식 목록 수집 및 저장
+
+    - exchanges: 거래소 리스트 (기본: ['US'] = 전체)
+    - filter_common: True면 일반 주식만, False면 ETF 등 포함
+
+    **주의**: 전체 수집은 수천 개 종목을 가져옵니다 (약 5-10분 소요)
+
+    **거래소 코드:**
+    - 'US': 미국 전체 (NYSE, NASDAQ, 기타 포함)
+    - 개별 지정도 가능하지만 'US' 사용 권장
+    """
+    collector = USMarketCollector()
+
+    try:
+        results = collector.save_all_stocks_to_db(
+            db,
+            exchanges=exchanges,
+            filter_common=filter_common
+        )
+
+        return {
+            "status": "success",
+            "message": "US stock list collection completed",
+            "results": {
+                "total": results['total'],
+                "new": results['saved'],
+                "updated": results['updated'],
+                "failed": results['failed']
+            },
+            "errors": results['errors'][:10] if results['errors'] else []  # 최대 10개 에러만
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error collecting US stock list: {str(e)}"
+        )
+
+
+@router.get("/preview/all-stocks")
+async def preview_all_us_stocks(
+        exchanges: Optional[List[str]] = Query(
+            None,
+            description="거래소 리스트 (미지정시 전체)"
+        ),
+        filter_common: bool = Query(
+            True,
+            description="일반 주식만 필터링"
+        ),
+        limit: int = Query(50, description="미리보기 개수", ge=1, le=500)
+):
+    """
+    미국 주식 목록 미리보기 (DB 저장 없이 조회만)
+
+    - exchanges: 거래소 리스트
+    - filter_common: 일반 주식만 필터링
+    - limit: 반환할 종목 수 (최대 500)
+
+    DB에 저장하지 않고 API에서 조회한 결과만 반환합니다.
+    """
+    collector = USMarketCollector()
+
+    try:
+        stocks_df = collector.get_all_us_stocks(exchanges)
+
+        if stocks_df.empty:
+            return {
+                "status": "success",
+                "total_count": 0,
+                "preview_count": 0,
+                "stocks": []
+            }
+
+        # 필터링
+        if filter_common:
+            stocks_df = collector.filter_common_stocks(stocks_df)
+
+        # 상위 N개만
+        preview_df = stocks_df.head(limit)
+        stocks_list = preview_df.to_dict('records')
+
+        return {
+            "status": "success",
+            "total_count": len(stocks_df),
+            "preview_count": len(stocks_list),
+            "filter_common": filter_common,
+            "stocks": stocks_list
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching US stock list: {str(e)}"
+        )
+
+
 @router.post("/collect/sp500-sample")
 async def collect_sp500_sample(
         db: Session = Depends(get_db)

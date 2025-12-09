@@ -22,7 +22,7 @@ class USMarketCollector:
         self.finnhub_base_url = "https://finnhub.io/api/v1"
         self.twelvedata_base_url = "https://api.twelvedata.com"
 
-        # S&P 500 주요 종목 샘플
+        # S&P 500 주요 종목 샘플 (레거시 - 더 이상 사용 안 함)
         self.sp500_sample = [
             "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA",
             "META", "TSLA", "JPM", "V", "JNJ"
@@ -37,6 +37,252 @@ class USMarketCollector:
             print(f"🔑 Twelve Data API Key: {self.twelvedata_api_key[:8]}...")
         else:
             print("⚠️  No Twelve Data API key found")
+
+    def get_all_us_stocks(self, exchanges: list = None) -> pd.DataFrame:
+        """
+        미국 전체 주식 목록 조회 (Finnhub Stock Symbols - 무료)
+
+        Args:
+            exchanges: 거래소 리스트 (None이면 NYSE, NASDAQ 모두)
+                      예: ['US'] 또는 ['NYSE', 'NASDAQ']
+
+        Returns:
+            주식 목록 DataFrame
+        """
+        if exchanges is None:
+            # 기본값: 미국 주요 거래소
+            exchanges = ['US']  # Finnhub에서 'US'는 NYSE + NASDAQ + 기타 포함
+
+        all_stocks = []
+
+        for exchange in exchanges:
+            try:
+                print(f"📡 Fetching stock list from {exchange}...")
+
+                url = f"{self.finnhub_base_url}/stock/symbol"
+                params = {
+                    'exchange': exchange,
+                    'token': self.finnhub_api_key
+                }
+
+                response = requests.get(url, params=params, timeout=30)
+                response.raise_for_status()
+                data = response.json()
+
+                if not data:
+                    print(f"⚠️  No stocks found for {exchange}")
+                    continue
+
+                print(f"✅ Found {len(data)} stocks from {exchange}")
+
+                # DataFrame 변환
+                df = pd.DataFrame(data)
+
+                # 필요한 컬럼만 선택 및 정규화
+                if not df.empty:
+                    # Finnhub 응답 컬럼: symbol, description, displaySymbol, type, mic, figi, currency
+                    df['ticker'] = df['symbol']
+                    df['name'] = df['description']
+                    df['market'] = df.get('mic', exchange)  # MIC (Market Identifier Code)
+                    df['type'] = df.get('type', 'Common Stock')
+                    df['currency'] = df.get('currency', 'USD')
+
+                    # 필요한 컬럼만 선택
+                    df = df[['ticker', 'name', 'market', 'type', 'currency']]
+
+                    all_stocks.append(df)
+
+                # API 속도 제한 고려
+                time.sleep(1)
+
+            except Exception as e:
+                print(f"❌ Error fetching stock list from {exchange}: {e}")
+                continue
+
+        if not all_stocks:
+            print("⚠️  No stocks collected from any exchange")
+            return pd.DataFrame()
+
+        # 모든 데이터 결합
+        result_df = pd.concat(all_stocks, ignore_index=True)
+
+        # 중복 제거 (ticker 기준)
+        result_df = result_df.drop_duplicates(subset=['ticker'], keep='first')
+
+        print(f"\n📊 Total unique stocks collected: {len(result_df)}")
+
+        return result_df
+
+    def filter_common_stocks(self, stocks_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        일반 주식만 필터링 (ETF, Warrant 등 제외)
+
+        Args:
+            stocks_df: 주식 DataFrame
+
+        Returns:
+            필터링된 DataFrame
+        """
+        if stocks_df.empty:
+            return stocks_df
+
+        # 'type' 컬럼이 있으면 Common Stock만 필터링
+        if 'type' in stocks_df.columns:
+            before_count = len(stocks_df)
+            stocks_df = stocks_df[
+                stocks_df['type'].str.contains('Common Stock', case=False, na=False)
+            ]
+            after_count = len(stocks_df)
+            print(f"🔍 Filtered: {before_count} → {after_count} (Common Stocks only)")
+
+        return stocks_df
+
+    def normalize_market_name(self, market: str) -> str:
+        """
+        거래소 이름을 표준화
+
+        Args:
+            market: 원본 거래소 이름 또는 MIC 코드
+
+        Returns:
+            표준화된 거래소 이름
+        """
+        # MIC 코드 매핑
+        mic_map = {
+            'XNYS': 'NYSE',
+            'XNAS': 'NASDAQ',
+            'ARCX': 'NYSE Arca',
+            'BATS': 'BATS',
+            'IEXG': 'IEX',
+            'XASE': 'NYSE American',
+            'XCHI': 'CHX',
+            'XPHL': 'PHLX',
+            'XBOS': 'Nasdaq BX',
+        }
+
+        # MIC 코드가 있으면 변환
+        if market in mic_map:
+            return mic_map[market]
+
+        # 이미 표준 이름이면 그대로 사용
+        if market in ['NYSE', 'NASDAQ']:
+            return market
+
+        # 문자열 매칭
+        market_upper = market.upper()
+        if 'NYSE' in market_upper:
+            return 'NYSE'
+        elif 'NASDAQ' in market_upper or 'NASD' in market_upper:
+            return 'NASDAQ'
+
+        # 알 수 없으면 앞 10자만
+        return market[:10]
+
+    def save_all_stocks_to_db(
+            self,
+            db: Session,
+            exchanges: list = None,
+            filter_common: bool = True
+    ) -> dict:
+        """
+        미국 전체 주식 목록을 DB에 저장
+
+        Args:
+            db: 데이터베이스 세션
+            exchanges: 거래소 리스트 (None이면 전체)
+            filter_common: 일반 주식만 필터링할지 여부
+
+        Returns:
+            저장 결과 딕셔너리
+        """
+        print(f"\n{'=' * 60}")
+        print("🚀 Starting US stock list collection")
+        print(f"{'=' * 60}\n")
+
+        # 전체 종목 리스트 조회
+        stocks_df = self.get_all_us_stocks(exchanges)
+
+        if stocks_df.empty:
+            print("❌ No stocks to save")
+            return {
+                'total': 0,
+                'saved': 0,
+                'updated': 0,
+                'failed': 0,
+                'errors': []
+            }
+
+        # 일반 주식만 필터링 (옵션)
+        if filter_common:
+            stocks_df = self.filter_common_stocks(stocks_df)
+
+        print(f"\n💾 Saving {len(stocks_df)} stocks to database...\n")
+
+        results = {
+            'total': len(stocks_df),
+            'saved': 0,
+            'updated': 0,
+            'failed': 0,
+            'errors': []
+        }
+
+        for idx, row in stocks_df.iterrows():
+            try:
+                ticker = row['ticker']
+                name = row['name']
+                market = self.normalize_market_name(row['market'])
+
+                # 기존 종목 확인
+                existing = db.query(Stock).filter(Stock.ticker == ticker).first()
+
+                if existing:
+                    # 업데이트
+                    existing.name = name
+                    existing.market = market
+                    results['updated'] += 1
+
+                    if (idx + 1) % 100 == 0:
+                        print(f"  [{idx + 1}/{len(stocks_df)}] Updated: {ticker} - {name}")
+                else:
+                    # 신규 생성
+                    stock = Stock(
+                        ticker=ticker,
+                        name=name,
+                        market=market,
+                        country='US',
+                        sector=None,  # 나중에 추가 API로 채울 수 있음
+                        industry=None
+                    )
+                    db.add(stock)
+                    results['saved'] += 1
+
+                    if (idx + 1) % 100 == 0:
+                        print(f"  [{idx + 1}/{len(stocks_df)}] Created: {ticker} - {name}")
+
+                # 100개마다 중간 커밋
+                if (idx + 1) % 100 == 0:
+                    db.commit()
+
+            except Exception as e:
+                error_msg = f"Error saving {row.get('ticker', 'unknown')}: {str(e)}"
+                print(f"  ❌ {error_msg}")
+                results['failed'] += 1
+                results['errors'].append(error_msg)
+                continue
+
+        # 최종 커밋
+        db.commit()
+
+        print(f"\n{'=' * 60}")
+        print("✅ US stock list collection completed!")
+        print(f"{'=' * 60}")
+        print(f"Total stocks: {results['total']}")
+        print(f"  - New: {results['saved']}")
+        print(f"  - Updated: {results['updated']}")
+        print(f"  - Failed: {results['failed']}")
+        print(f"{'=' * 60}\n")
+
+        return results
 
     def _normalize_market(self, exchange: str) -> str:
         """
