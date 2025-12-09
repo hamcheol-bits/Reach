@@ -19,7 +19,7 @@ async def collect_us_stock(
     미국 주식 정보 수집 및 저장
 
     - ticker: 종목 코드 (예: AAPL, MSFT, GOOGL)
-    - 종목 기본 정보를 yfinance에서 조회하여 DB에 저장
+    - 종목 기본 정보를 Finnhub에서 조회하여 DB에 저장
     """
     collector = USMarketCollector()
 
@@ -114,7 +114,7 @@ async def collect_us_stock_prices(
 async def collect_all_us_stocks(
         exchanges: Optional[List[str]] = Query(
             None,
-            description="거래소 리스트 (미지정시 전체: US = NYSE + NASDAQ + 기타)"
+            description="거래소 리스트 (미지정시 'US' = 전체)"
         ),
         filter_common: bool = Query(
             True,
@@ -123,16 +123,20 @@ async def collect_all_us_stocks(
         db: Session = Depends(get_db)
 ):
     """
-    미국 전체 주식 목록 수집 및 저장
+    미국 전체 주식 목록 수집 및 저장 (Finnhub API)
 
-    - exchanges: 거래소 리스트 (기본: ['US'] = 전체)
+    - exchanges: 거래소 리스트 (기본: ['US'])
     - filter_common: True면 일반 주식만, False면 ETF 등 포함
 
     **주의**: 전체 수집은 수천 개 종목을 가져옵니다 (약 5-10분 소요)
 
-    **거래소 코드:**
-    - 'US': 미국 전체 (NYSE, NASDAQ, 기타 포함)
-    - 개별 지정도 가능하지만 'US' 사용 권장
+    **거래소 옵션:**
+    - 'US': 미국 전체 (NYSE, NASDAQ, OTC 등 포함) - **권장**
+    - 개별 거래소는 테스트 필요
+
+    **Finnhub 무료 플랜:**
+    - 60 requests/min
+    - Stock Symbols 조회: 1회 호출로 전체 리스트 조회 가능
     """
     collector = USMarketCollector()
 
@@ -166,7 +170,7 @@ async def collect_all_us_stocks(
 async def preview_all_us_stocks(
         exchanges: Optional[List[str]] = Query(
             None,
-            description="거래소 리스트 (미지정시 전체)"
+            description="거래소 리스트 (미지정시 'US')"
         ),
         filter_common: bool = Query(
             True,
@@ -181,7 +185,7 @@ async def preview_all_us_stocks(
     - filter_common: 일반 주식만 필터링
     - limit: 반환할 종목 수 (최대 500)
 
-    DB에 저장하지 않고 API에서 조회한 결과만 반환합니다.
+    DB에 저장하지 않고 Finnhub API에서 조회한 결과만 반환합니다.
     """
     collector = USMarketCollector()
 
@@ -234,7 +238,7 @@ async def collect_sp500_sample(
     - NVDA (NVIDIA)
     - META (Meta)
     - TSLA (Tesla)
-    - BRK-B (Berkshire Hathaway)
+    - JPM (JP Morgan)
     - V (Visa)
     - JNJ (Johnson & Johnson)
     """
@@ -264,7 +268,7 @@ async def get_us_stock_info(
     """
     미국 주식 정보 미리보기 (DB 저장 안 함)
 
-    - yfinance에서 실시간 종목 정보 조회
+    - Finnhub에서 실시간 종목 정보 조회
     - DB에 저장하지 않음
     """
     collector = USMarketCollector()

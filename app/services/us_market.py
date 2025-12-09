@@ -14,7 +14,6 @@ class USMarketCollector:
     """미국 시장 데이터 수집기 (Finnhub + Twelve Data 조합)"""
 
     def __init__(self):
-        # config.py의 Settings에서 API 키 가져오기
         settings = get_settings()
         self.finnhub_api_key = settings.finnhub_api_key
         self.twelvedata_api_key = settings.twelvedata_api_key
@@ -22,7 +21,7 @@ class USMarketCollector:
         self.finnhub_base_url = "https://finnhub.io/api/v1"
         self.twelvedata_base_url = "https://api.twelvedata.com"
 
-        # S&P 500 주요 종목 샘플 (레거시 - 더 이상 사용 안 함)
+        # S&P 500 주요 종목 샘플
         self.sp500_sample = [
             "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA",
             "META", "TSLA", "JPM", "V", "JNJ"
@@ -40,18 +39,18 @@ class USMarketCollector:
 
     def get_all_us_stocks(self, exchanges: list = None) -> pd.DataFrame:
         """
-        미국 전체 주식 목록 조회 (Finnhub Stock Symbols - 무료)
+        미국 전체 주식 목록 조회 (Finnhub Stock Symbols)
 
         Args:
-            exchanges: 거래소 리스트 (None이면 NYSE, NASDAQ 모두)
-                      예: ['US'] 또는 ['NYSE', 'NASDAQ']
+            exchanges: 거래소 리스트 (None이면 'US' = 전체)
+                      예: ['US'] (권장) 또는 개별 거래소 시도
 
         Returns:
             주식 목록 DataFrame
         """
         if exchanges is None:
-            # 기본값: 미국 주요 거래소
-            exchanges = ['US']  # Finnhub에서 'US'는 NYSE + NASDAQ + 기타 포함
+            # 기본값: 'US' = NYSE + NASDAQ + 기타 모두
+            exchanges = ['US']
 
         all_stocks = []
 
@@ -158,6 +157,7 @@ class USMarketCollector:
             'XCHI': 'CHX',
             'XPHL': 'PHLX',
             'XBOS': 'Nasdaq BX',
+            'OOTC': 'OTC',
         }
 
         # MIC 코드가 있으면 변환
@@ -165,7 +165,7 @@ class USMarketCollector:
             return mic_map[market]
 
         # 이미 표준 이름이면 그대로 사용
-        if market in ['NYSE', 'NASDAQ']:
+        if market in ['NYSE', 'NASDAQ', 'US']:
             return market
 
         # 문자열 매칭
@@ -175,8 +175,8 @@ class USMarketCollector:
         elif 'NASDAQ' in market_upper or 'NASD' in market_upper:
             return 'NASDAQ'
 
-        # 알 수 없으면 앞 10자만
-        return market[:10]
+        # 알 수 없으면 앞 20자만
+        return market[:20]
 
     def save_all_stocks_to_db(
             self,
@@ -189,14 +189,14 @@ class USMarketCollector:
 
         Args:
             db: 데이터베이스 세션
-            exchanges: 거래소 리스트 (None이면 전체)
+            exchanges: 거래소 리스트 (None이면 'US' = 전체)
             filter_common: 일반 주식만 필터링할지 여부
 
         Returns:
             저장 결과 딕셔너리
         """
         print(f"\n{'=' * 60}")
-        print("🚀 Starting US stock list collection")
+        print("🚀 Starting US stock list collection (Finnhub)")
         print(f"{'=' * 60}\n")
 
         # 전체 종목 리스트 조회
@@ -250,7 +250,7 @@ class USMarketCollector:
                         name=name,
                         market=market,
                         country='US',
-                        sector=None,  # 나중에 추가 API로 채울 수 있음
+                        sector=None,  # Finnhub Stock Symbols에는 sector 없음
                         industry=None
                     )
                     db.add(stock)
@@ -284,31 +284,9 @@ class USMarketCollector:
 
         return results
 
-    def _normalize_market(self, exchange: str) -> str:
-        """
-        거래소 이름을 간단하게 정규화
-
-        Args:
-            exchange: 원본 거래소 이름
-
-        Returns:
-            정규화된 거래소 이름 (최대 10자)
-        """
-        # 매핑 테이블
-        exchange_map = {
-            'NASDAQ NMS - GLOBAL MARKET': 'NASDAQ',
-            'NEW YORK STOCK EXCHANGE, INC.': 'NYSE',
-            'NYSE': 'NYSE',
-            'NASDAQ': 'NASDAQ',
-        }
-
-        # 매핑에 있으면 사용, 없으면 앞 10자만
-        normalized = exchange_map.get(exchange.upper(), exchange[10])
-        return normalized
-
     def get_stock_info(self, ticker: str) -> dict:
         """
-        주식 기본 정보 조회 (Finnhub Company Profile - 무료)
+        주식 기본 정보 조회 (Finnhub Company Profile)
 
         Args:
             ticker: 종목 코드
@@ -327,14 +305,11 @@ class USMarketCollector:
             response.raise_for_status()
             data = response.json()
 
-            # 빈 응답 체크
             if not data or 'name' not in data:
                 print(f"❌ No data found for {ticker}")
                 return None
 
-            # market 값 정규화 (최대 50자)
-            raw_market = data.get('exchange', 'NASDAQ')
-            market = self._normalize_market(raw_market)
+            market = self.normalize_market_name(data.get('exchange', 'NASDAQ'))
 
             result = {
                 'ticker': ticker,
@@ -359,7 +334,7 @@ class USMarketCollector:
             end_date: Optional[datetime] = None
     ) -> pd.DataFrame:
         """
-        주식 가격 데이터 조회 (Twelve Data Time Series - 무료)
+        주식 가격 데이터 조회 (Twelve Data Time Series)
 
         Args:
             ticker: 종목 코드
@@ -389,31 +364,26 @@ class USMarketCollector:
             response.raise_for_status()
             data = response.json()
 
-            # 에러 체크
             if 'status' in data and data['status'] == 'error':
                 print(f"❌ [Twelve Data] API Error for {ticker}: {data.get('message', 'Unknown error')}")
                 return pd.DataFrame()
 
-            # 데이터 추출
             values = data.get('values', [])
             if not values:
                 print(f"❌ [Twelve Data] No price data found for {ticker}")
                 return pd.DataFrame()
 
-            # DataFrame 생성
             df = pd.DataFrame(values)
             df['datetime'] = pd.to_datetime(df['datetime'])
             df.set_index('datetime', inplace=True)
             df = df.sort_index()
 
-            # 컬럼명 정규화 및 타입 변환
             df['Open'] = pd.to_numeric(df['open'], errors='coerce')
             df['High'] = pd.to_numeric(df['high'], errors='coerce')
             df['Low'] = pd.to_numeric(df['low'], errors='coerce')
             df['Close'] = pd.to_numeric(df['close'], errors='coerce')
             df['Volume'] = pd.to_numeric(df['volume'], errors='coerce').astype('Int64')
 
-            # 필요한 컬럼만 선택
             df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
 
             print(f"✅ [Twelve Data] Fetched {len(df)} price records for {ticker}")
@@ -440,18 +410,15 @@ class USMarketCollector:
             return False
 
         try:
-            # 기존 종목 확인
             existing = db.query(Stock).filter(Stock.ticker == ticker).first()
 
             if existing:
-                # 업데이트
                 existing.name = info['name']
                 existing.market = info['market']
                 existing.sector = info['sector']
                 existing.industry = info['industry']
                 print(f"📝 Updated stock: {ticker} - {info['name']}")
             else:
-                # 신규 생성
                 stock = Stock(
                     ticker=ticker,
                     name=info['name'],
@@ -488,13 +455,11 @@ class USMarketCollector:
         Returns:
             저장된 레코드 수
         """
-        # 주식 정보 조회
         stock = db.query(Stock).filter(Stock.ticker == ticker).first()
         if not stock:
             print(f"❌ Stock {ticker} not found in database")
             return 0
 
-        # 가격 데이터 조회
         price_df = self.get_stock_price(ticker, start_date)
 
         if price_df.empty:
@@ -505,7 +470,6 @@ class USMarketCollector:
 
         for date_idx, row in price_df.iterrows():
             try:
-                # 기존 데이터 확인
                 existing = db.query(StockPrice).filter(
                     StockPrice.stock_id == stock.id,
                     StockPrice.trade_date == date_idx.date()
@@ -522,12 +486,10 @@ class USMarketCollector:
                 }
 
                 if existing:
-                    # 업데이트
                     for key, value in price_data.items():
                         if key not in ['stock_id', 'trade_date']:
                             setattr(existing, key, value)
                 else:
-                    # 신규 생성
                     price = StockPrice(**price_data)
                     db.add(price)
 
@@ -569,8 +531,6 @@ class USMarketCollector:
             else:
                 results['failed'] += 1
 
-            # Finnhub: 분당 60회 (충분히 빠름)
-            # 안전하게 1초 대기
             if idx < len(self.sp500_sample) - 1:
                 time.sleep(1)
 

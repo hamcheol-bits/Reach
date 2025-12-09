@@ -170,7 +170,8 @@ class BatchCollector:
         db: Session,
         tickers: List[str] = None,
         incremental: bool = True,
-        collect_all: bool = False
+        collect_all: bool = False,
+        markets: Optional[List[str]] = None
     ) -> Dict:
         """
         미국 시장 배치 수집
@@ -180,6 +181,7 @@ class BatchCollector:
             tickers: 수집할 티커 리스트 (collect_all=False일 때 사용)
             incremental: 증분 업데이트 여부
             collect_all: True면 DB의 모든 US 종목 수집
+            markets: 특정 market만 수집 (예: ['NYSE', 'NASDAQ'])
 
         Returns:
             수집 결과 딕셔너리
@@ -187,12 +189,19 @@ class BatchCollector:
         print(f"\n{'='*60}")
         print(f"🚀 Starting US market batch collection")
 
-        # collect_all이 True면 DB에서 모든 US 종목 조회
+        # collect_all이 True면 DB에서 US 종목 조회
         if collect_all:
-            print(f"   Mode: Collect ALL US stocks from DB")
-            us_stocks = db.query(Stock).filter(Stock.country == 'US').all()
+            query = db.query(Stock).filter(Stock.country == 'US')
+
+            # market 필터 추가
+            if markets:
+                print(f"   Markets filter: {markets}")
+                query = query.filter(Stock.market.in_(markets))
+
+            us_stocks = query.all()
             tickers = [stock.ticker for stock in us_stocks]
-            print(f"   Found {len(tickers)} US stocks in database")
+            print(f"   Mode: Collect ALL US stocks from DB")
+            print(f"   Found {len(tickers)} stocks")
         else:
             print(f"   Mode: Collect specified tickers")
             print(f"   Tickers: {len(tickers) if tickers else 0}")
@@ -203,6 +212,7 @@ class BatchCollector:
         start_time = datetime.now()
         results = {
             'market': 'US',
+            'markets_filter': markets,
             'collect_all': collect_all,
             'start_time': start_time.isoformat(),
             'stocks_processed': 0,
@@ -292,6 +302,7 @@ class BatchCollector:
         korea_markets: List[str] = None,
         us_tickers: List[str] = None,
         us_collect_all: bool = False,
+        us_markets: Optional[List[str]] = None,
         incremental: bool = True
     ) -> Dict:
         """
@@ -302,6 +313,7 @@ class BatchCollector:
             korea_markets: 한국 시장 리스트 (기본: ['KOSPI', 'KOSDAQ'])
             us_tickers: 미국 티커 리스트 (us_collect_all=False일 때 사용)
             us_collect_all: True면 DB의 모든 US 종목 수집
+            us_markets: 미국 시장 필터 (예: ['NYSE', 'NASDAQ'])
             incremental: 증분 업데이트 여부
 
         Returns:
@@ -335,7 +347,8 @@ class BatchCollector:
             db,
             tickers=us_tickers,
             incremental=incremental,
-            collect_all=us_collect_all
+            collect_all=us_collect_all,
+            markets=us_markets
         )
         all_results['us'] = us_result
         all_results['total_stocks_processed'] += us_result['stocks_processed']
