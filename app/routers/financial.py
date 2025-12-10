@@ -60,7 +60,6 @@ async def collect_financial_statement(
             detail=f"Error collecting financial data: {str(e)}"
         )
 
-
 @router.post("/collect/{ticker}/multiple-years")
 async def collect_multiple_years(
         ticker: str,
@@ -110,6 +109,76 @@ async def collect_multiple_years(
             detail=f"Error collecting financial data: {str(e)}"
         )
 
+@router.post("/batch/collect-all")
+async def batch_collect_all_stocks(
+        start_year: int = Query(2023, description="시작 연도"),
+        end_year: int = Query(2025, description="종료 연도"),
+        market: Optional[str] = Query(None, description="시장 (KOSPI, KOSDAQ, None=전체)"),
+        limit: Optional[int] = Query(None, description="수집할 종목 수 제한 (테스트용)"),
+        incremental: bool = Query(False, description="증분 모드 (각 종목의 최신 연도부터만 수집)"),
+        db: Session = Depends(get_db)
+):
+    """
+    한국 주식 전체 재무제표 배치 수집
+
+    - start_year: 시작 연도 (기본: 2023)
+    - end_year: 종료 연도 (기본: 2025)
+    - market: KOSPI 또는 KOSDAQ (None이면 전체)
+    - limit: 수집할 종목 수 제한 (테스트용)
+    - incremental: 증분 모드 활성화
+
+    **초기 수집 (Full Mode):**
+    ```
+    POST /api/v1/financial/batch/collect-all?start_year=2023&end_year=2025
+    ```
+    → 전체 종목의 2023-2025년 재무제표 수집
+
+    **증분 수집 (Incremental Mode):**
+    ```
+    POST /api/v1/financial/batch/collect-all?start_year=2023&end_year=2025&incremental=true
+    ```
+    → 각 종목의 최신 연도 이후만 수집 (누락분만)
+
+    **테스트 (10개만):**
+    ```
+    POST /api/v1/financial/batch/collect-all?limit=10&start_year=2025&end_year=2025
+    ```
+
+    **주의:**
+    - 전체 수집은 몇 시간 걸릴 수 있습니다 (~2,500 종목 × 3년 × 1초 = 약 2시간)
+    - DART API 속도 제한으로 각 호출마다 1초 대기
+    - 증분 모드는 스케줄링에 적합 (신규 데이터만 수집)
+    """
+    from app.services.financial_batch import FinancialBatchCollector
+
+    if start_year > end_year:
+        raise HTTPException(
+            status_code=400,
+            detail="start_year must be less than or equal to end_year"
+        )
+
+    try:
+        # 배치 수집 실행
+        batch_collector = FinancialBatchCollector()
+        result = batch_collector.collect_all_kr_stocks(
+            db=db,
+            start_year=start_year,
+            end_year=end_year,
+            market=market,
+            limit=limit,
+            incremental=incremental
+        )
+
+        return {
+            "status": "success",
+            "result": result
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error in batch collection: {str(e)}"
+        )
 
 @router.get("/stats")
 async def get_financial_stats(db: Session = Depends(get_db)):
