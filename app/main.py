@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.config import get_settings
-from app.routers import health, stock, korea, us, batch, scheduler as scheduler_router
+from app.routers import health, stock, korea, us, batch, scheduler as scheduler_router, financial
 from app.services.scheduler import scheduler
 
 settings = get_settings()
@@ -51,6 +51,7 @@ app.include_router(korea.router, prefix="/api/v1")
 app.include_router(us.router, prefix="/api/v1")
 app.include_router(batch.router, prefix="/api/v1")  # 배치 수집 라우터
 app.include_router(scheduler_router.router, prefix="/api/v1")  # 스케줄러 라우터
+app.include_router(financial.router, prefix="/api/v1")
 
 
 @app.get("/")

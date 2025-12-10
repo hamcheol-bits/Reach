@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     # API Keys
     finnhub_api_key: str = ""  # Finnhub API 키
     twelvedata_api_key: str = ""  # Twelve Data API 키
+    dart_api_key: str=""
 
     class Config:
         env_file = ".env"
