@@ -152,3 +152,50 @@ async def preview_korea_stocks(
             status_code=500,
             detail=f"Error fetching stocks: {str(e)}"
         )
+
+@router.post("/collect/market-data")
+async def collect_market_data(
+        market: str = Query("KOSPI", description="시장 (KOSPI 또는 KOSDAQ)"),
+        date: Optional[str] = Query(None, description="조회 날짜 (YYYY-MM-DD, 미지정시 오늘)"),
+        db: Session = Depends(get_db)
+):
+    """
+    시장 데이터 수집 (시가총액, 거래대금, 상장주식수)
+
+    - market: KOSPI 또는 KOSDAQ
+    - date: 조회 날짜 (미지정시 오늘)
+    """
+    if market not in ["KOSPI", "KOSDAQ"]:
+        raise HTTPException(
+            status_code=400,
+            detail="market must be either 'KOSPI' or 'KOSDAQ'"
+        )
+
+    collector = KoreaMarketCollector()
+
+    # 날짜 파싱
+    target_date = None
+    if date:
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="date must be in YYYY-MM-DD format"
+            )
+
+    try:
+        saved_count = collector.save_market_data_to_db(db, market, target_date)
+
+        return {
+            "status": "success",
+            "market": market,
+            "date": date or "today",
+            "saved_count": saved_count,
+            "message": f"Successfully saved {saved_count} market data records"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error collecting market data: {str(e)}"
+        )
