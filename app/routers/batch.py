@@ -217,9 +217,9 @@ async def get_collection_stats(db: Session = Depends(get_db)):
     """
     데이터 수집 통계 조회
 
-    각 시장별로 수집된 종목 수와 최신 가격 데이터 날짜를 반환
+    각 시장별로 수집된 종목 수와 최신 가격/시장 데이터 날짜를 반환
     """
-    from app.models import Stock, StockPrice
+    from app.models import Stock, StockPrice, StockMarketData
     from sqlalchemy import func
 
     try:
@@ -259,6 +259,19 @@ async def get_collection_stats(db: Session = Depends(get_db)):
             .scalar()
         )
 
+        # 시장 데이터 통계 ⭐ 신규 추가
+        latest_market_data = (
+            db.query(func.max(StockMarketData.trade_date))
+            .scalar()
+        )
+
+        total_market_data = db.query(StockMarketData).count()
+
+        stocks_with_market_data = (
+            db.query(func.count(func.distinct(StockMarketData.stock_id)))
+            .scalar()
+        )
+
         return {
             "status": "success",
             "stocks": {
@@ -277,6 +290,11 @@ async def get_collection_stats(db: Session = Depends(get_db)):
                 "total_records": total_prices,
                 "stocks_with_prices": stocks_with_prices,
                 "latest_date": latest_price.isoformat() if latest_price else None
+            },
+            "market_data": {  # ⭐ 신규 추가
+                "total_records": total_market_data,
+                "stocks_with_market_data": stocks_with_market_data,
+                "latest_date": latest_market_data.isoformat() if latest_market_data else None
             }
         }
 

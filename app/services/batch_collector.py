@@ -78,17 +78,24 @@ class BatchCollector:
             'stocks_success': 0,
             'stocks_failed': 0,
             'prices_saved': 0,
+            'market_data_saved': 0,
             'errors': []
         }
 
         try:
-            # 1. 주식 목록 수집 및 저장
+            # 1. 주식 목록 수집 및 저장 (섹터 포함)
             print(f"📊 Step 1: Collecting stock list from {market}...")
             stocks_count = self.korea_collector.save_stocks_to_db(db, market)
             print(f"✅ Saved {stocks_count} stocks from {market}\n")
 
-            # 2. 각 종목의 가격 데이터 수집
-            print(f"💰 Step 2: Collecting price data...\n")
+            # 2. 시장 데이터 수집 (시가총액, 거래대금, 상장주식수) ⭐ 신규
+            print(f"📈 Step 2: Collecting market data (market cap, trading value, shares)...\n")
+            market_data_count = self.korea_collector.save_market_data_to_db(db, market)
+            results['market_data_saved'] = market_data_count
+            print(f"✅ Saved {market_data_count} market data records\n")
+
+            # 3. 각 종목의 가격 데이터 수집
+            print(f"💰 Step 3: Collecting price data...\n")
 
             # DB에서 해당 시장의 모든 종목 조회
             stocks = (
@@ -159,6 +166,7 @@ class BatchCollector:
         print(f"Stocks processed: {results['stocks_processed']}")
         print(f"  - Success: {results['stocks_success']}")
         print(f"  - Failed: {results['stocks_failed']}")
+        print(f"Market data saved: {results['market_data_saved']}")
         print(f"Price records saved: {results['prices_saved']}")
         print(f"Duration: {duration:.1f} seconds")
         print(f"{'='*60}\n")

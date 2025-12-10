@@ -13,6 +13,11 @@
 - **Market 필터링**: 특정 거래소만 선택적으로 수집 가능
 - **배치 처리**: 전체 시장 데이터 일괄 수집
 
+✨ **포괄적인 데이터 수집**
+- **주식 정보**: 종목 코드, 이름, 시장, 섹터 (pykrx)
+- **주가 데이터**: OHLCV (Open, High, Low, Close, Volume)
+- **시장 데이터**: 시가총액, 거래대금, 상장주식수
+
 🤖 **자동화**
 - APScheduler 기반 정기 자동 수집
 - Cron 표현식으로 유연한 스케줄 설정
@@ -127,7 +132,7 @@ curl -X POST "http://localhost:8001/api/v1/batch/collect/us" \
 ### 4️⃣ 한국 시장 수집
 
 ```bash
-# KOSPI 전체 수집 (약 30분)
+# KOSPI 전체 수집 (종목정보 + 시장데이터 + 주가)
 curl -X POST "http://localhost:8001/api/v1/batch/collect/korea/KOSPI?incremental=true"
 
 # KOSDAQ 전체 수집 (약 40분)
