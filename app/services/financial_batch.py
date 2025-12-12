@@ -80,7 +80,8 @@ class FinancialBatchCollector:
         start_year: int,
         end_year: int,
         skip_existing: bool = True,
-        incremental: bool = False
+        incremental: bool = False,
+        include_quarters: bool = False
     ) -> Dict:
         """
         여러 종목의 재무제표 배치 수집
@@ -92,6 +93,7 @@ class FinancialBatchCollector:
             end_year: 종료 연도
             skip_existing: 이미 수집된 데이터 건너뛰기
             incremental: 증분 모드 (True면 각 종목의 최신 연도부터만 수집)
+            include_quarters: 분기 재무제표도 수집 (True면 Q1, Q2, Q3 포함)
 
         Returns:
             수집 결과 딕셔너리
@@ -102,6 +104,7 @@ class FinancialBatchCollector:
         print(f"   Years: {start_year}-{end_year}")
         print(f"   Skip existing: {skip_existing}")
         print(f"   Incremental mode: {incremental}")
+        print(f"   Include quarters: {include_quarters}")
         print(f"{'='*60}\n")
 
         start_time = datetime.now()
@@ -115,6 +118,7 @@ class FinancialBatchCollector:
             'stocks_skipped': 0,
             'statements_collected': 0,
             'statements_skipped': 0,
+            'quarterly_collected': 0,  # 신규: 분기 재무제표 수
             'errors': []
         }
 
@@ -151,7 +155,7 @@ class FinancialBatchCollector:
                 # 각 연도별 수집
                 for year in range(actual_start_year, end_year + 1):
                     try:
-                        # 이미 수집된 데이터 확인
+                        # 1. 연간 재무제표 수집
                         if skip_existing:
                             existing = db.query(FinancialStatement).filter(
                                 FinancialStatement.stock_id == stock.id,
@@ -163,20 +167,69 @@ class FinancialBatchCollector:
                                 print(f"  {year}: ⏭️  Skipped (already exists)")
                                 results['statements_skipped'] += 1
                                 stock_success = True
-                                continue
+                            else:
+                                # 연간 재무제표 수집
+                                success = self.dart_service.save_financial_to_db(
+                                    db, ticker, year
+                                )
 
-                        # 재무제표 수집
-                        success = self.dart_service.save_financial_to_db(
-                            db, ticker, year
-                        )
-
-                        if success:
-                            print(f"  {year}: ✅ Collected")
-                            results['statements_collected'] += 1
-                            stock_success = True
-                            stock_skipped = False
+                                if success:
+                                    print(f"  {year}: ✅ Collected (Annual)")
+                                    results['statements_collected'] += 1
+                                    stock_success = True
+                                    stock_skipped = False
+                                else:
+                                    print(f"  {year}: ❌ Failed (Annual)")
                         else:
-                            print(f"  {year}: ❌ Failed")
+                            # skip_existing=False면 무조건 수집
+                            success = self.dart_service.save_financial_to_db(
+                                db, ticker, year
+                            )
+
+                            if success:
+                                print(f"  {year}: ✅ Collected (Annual)")
+                                results['statements_collected'] += 1
+                                stock_success = True
+                                stock_skipped = False
+                            else:
+                                print(f"  {year}: ❌ Failed (Annual)")
+
+                        # 2. 분기 재무제표 수집 (옵션)
+                        if include_quarters:
+                            for quarter in [1, 2, 3]:  # Q1, Q2, Q3 (Q4는 연간과 동일)
+                                try:
+                                    if skip_existing:
+                                        existing_q = db.query(FinancialStatement).filter(
+                                            FinancialStatement.stock_id == stock.id,
+                                            FinancialStatement.fiscal_year == year,
+                                            FinancialStatement.fiscal_quarter == quarter
+                                        ).first()
+
+                                        if existing_q:
+                                            print(f"  {year}Q{quarter}: ⏭️  Skipped")
+                                            results['statements_skipped'] += 1
+                                            continue
+
+                                    # 분기 재무제표 수집
+                                    success_q = self.dart_service.save_financial_to_db(
+                                        db, ticker, year, quarter
+                                    )
+
+                                    if success_q:
+                                        print(f"  {year}Q{quarter}: ✅ Collected")
+                                        results['quarterly_collected'] += 1
+                                        stock_success = True
+                                        stock_skipped = False
+                                    else:
+                                        print(f"  {year}Q{quarter}: ❌ Failed")
+
+                                    # API 속도 제한 (1초 대기)
+                                    time.sleep(1)
+
+                                except Exception as e:
+                                    error_msg = f"{ticker} {year}Q{quarter}: {str(e)}"
+                                    print(f"  {year}Q{quarter}: ❌ Error - {e}")
+                                    results['errors'].append(error_msg)
 
                         # DART API 속도 제한 (1초 대기)
                         time.sleep(1)
@@ -213,7 +266,10 @@ class FinancialBatchCollector:
         print(f"  - Success: {results['stocks_success']}")
         print(f"  - Failed: {results['stocks_failed']}")
         print(f"  - Skipped: {results['stocks_skipped']}")
-        print(f"Statements collected: {results['statements_collected']}")
+        print(f"Statements collected:")
+        print(f"  - Annual: {results['statements_collected']}")
+        if include_quarters:
+            print(f"  - Quarterly: {results['quarterly_collected']}")
         print(f"Statements skipped: {results['statements_skipped']}")
         print(f"Duration: {duration/60:.1f} minutes")
         if results['errors']:
@@ -229,7 +285,8 @@ class FinancialBatchCollector:
         end_year: int = 2025,
         market: Optional[str] = None,
         limit: Optional[int] = None,
-        incremental: bool = False
+        incremental: bool = False,
+        include_quarters: bool = False
     ) -> Dict:
         """
         한국 전체 종목 재무제표 수집
@@ -241,6 +298,7 @@ class FinancialBatchCollector:
             market: KOSPI 또는 KOSDAQ (None이면 전체)
             limit: 종목 수 제한 (테스트용)
             incremental: 증분 모드 (각 종목의 최신 연도부터만 수집)
+            include_quarters: 분기 재무제표도 수집
 
         Returns:
             수집 결과 딕셔너리
@@ -253,6 +311,10 @@ class FinancialBatchCollector:
             print(f"   Mode: FULL (collect all years)")
         print(f"   Market: {market or 'ALL'}")
         print(f"   Years: {start_year}-{end_year}")
+        if include_quarters:
+            print(f"   Quarters: YES (Q1, Q2, Q3)")
+        else:
+            print(f"   Quarters: NO (Annual only)")
         if limit:
             print(f"   Limit: {limit} stocks (TEST MODE)")
         print(f"{'='*60}\n")
@@ -275,7 +337,8 @@ class FinancialBatchCollector:
             start_year=start_year,
             end_year=end_year,
             skip_existing=True,
-            incremental=incremental
+            incremental=incremental,
+            include_quarters=include_quarters
         )
 
         return result

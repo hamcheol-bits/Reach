@@ -65,6 +65,7 @@ async def collect_multiple_years(
         ticker: str,
         start_year: int = Query(..., description="시작 연도 (예: 2020)"),
         end_year: int = Query(..., description="종료 연도 (예: 2023)"),
+        include_quarters: bool = Query(False, description="분기 재무제표도 수집"),
         db: Session = Depends(get_db)
 ):
     """
@@ -73,11 +74,15 @@ async def collect_multiple_years(
     - ticker: 종목코드 (예: 005930)
     - start_year: 시작 연도
     - end_year: 종료 연도
+    - include_quarters: 분기 재무제표도 수집 (True면 Q1, Q2, Q3 포함)
 
     **예시:**
-    - 삼성전자 2020~2023: `/api/v1/financial/collect/005930/multiple-years?start_year=2020&end_year=2023`
+    - 삼성전자 2020~2023 연간만: `/api/v1/financial/collect/005930/multiple-years?start_year=2020&end_year=2023`
+    - 삼성전자 2023년 연간+분기: `/api/v1/financial/collect/005930/multiple-years?start_year=2023&end_year=2023&include_quarters=true`
 
-    **주의:** 여러 연도 수집은 시간이 걸립니다 (1년당 약 1-2초)
+    **주의:**
+    - 여러 연도 수집은 시간이 걸립니다 (1년당 약 1-2초)
+    - 분기 포함 시 4배 시간 소요 (연간 1개 + 분기 3개)
     """
     if start_year > end_year:
         raise HTTPException(
@@ -94,12 +99,15 @@ async def collect_multiple_years(
     dart_service = DartApiService()
 
     try:
-        result = dart_service.collect_multiple_years(db, ticker, start_year, end_year)
+        result = dart_service.collect_multiple_years(
+            db, ticker, start_year, end_year, include_quarters
+        )
 
         return {
             "status": "success",
             "ticker": ticker,
             "years_range": f"{start_year}-{end_year}",
+            "include_quarters": include_quarters,
             "result": result
         }
 
@@ -116,6 +124,7 @@ async def batch_collect_all_stocks(
         market: Optional[str] = Query(None, description="시장 (KOSPI, KOSDAQ, None=전체)"),
         limit: Optional[int] = Query(None, description="수집할 종목 수 제한 (테스트용)"),
         incremental: bool = Query(False, description="증분 모드 (각 종목의 최신 연도부터만 수집)"),
+        include_quarters: bool = Query(False, description="분기 재무제표도 수집"),
         db: Session = Depends(get_db)
 ):
     """
@@ -126,12 +135,19 @@ async def batch_collect_all_stocks(
     - market: KOSPI 또는 KOSDAQ (None이면 전체)
     - limit: 수집할 종목 수 제한 (테스트용)
     - incremental: 증분 모드 활성화
+    - include_quarters: 분기 재무제표도 수집 ✨ **신규**
 
-    **초기 수집 (Full Mode):**
+    **초기 수집 (Full Mode, 연간만):**
     ```
     POST /api/v1/financial/batch/collect-all?start_year=2023&end_year=2025
     ```
-    → 전체 종목의 2023-2025년 재무제표 수집
+    → 전체 종목의 2023-2025년 연간 재무제표 수집
+
+    **초기 수집 (Full Mode, 연간+분기):**
+    ```
+    POST /api/v1/financial/batch/collect-all?start_year=2023&end_year=2025&include_quarters=true
+    ```
+    → 전체 종목의 2023-2025년 연간 + 분기(Q1,Q2,Q3) 재무제표 수집
 
     **증분 수집 (Incremental Mode):**
     ```
@@ -139,13 +155,15 @@ async def batch_collect_all_stocks(
     ```
     → 각 종목의 최신 연도 이후만 수집 (누락분만)
 
-    **테스트 (10개만):**
+    **테스트 (10개만, 분기 포함):**
     ```
-    POST /api/v1/financial/batch/collect-all?limit=10&start_year=2025&end_year=2025
+    POST /api/v1/financial/batch/collect-all?limit=10&start_year=2025&end_year=2025&include_quarters=true
     ```
 
     **주의:**
-    - 전체 수집은 몇 시간 걸릴 수 있습니다 (~2,500 종목 × 3년 × 1초 = 약 2시간)
+    - 전체 수집은 몇 시간 걸릴 수 있습니다
+      - 연간만: ~2,500 종목 × 3년 × 1초 = 약 2시간
+      - 연간+분기: ~2,500 종목 × 3년 × 4개 × 1초 = 약 8시간
     - DART API 속도 제한으로 각 호출마다 1초 대기
     - 증분 모드는 스케줄링에 적합 (신규 데이터만 수집)
     """
@@ -166,7 +184,8 @@ async def batch_collect_all_stocks(
             end_year=end_year,
             market=market,
             limit=limit,
-            incremental=incremental
+            incremental=incremental,
+            include_quarters=include_quarters
         )
 
         return {
@@ -186,6 +205,8 @@ async def get_financial_stats(db: Session = Depends(get_db)):
     재무제표 수집 통계 조회
 
     DB에 저장된 재무제표 데이터 통계를 반환합니다.
+    - 연간/분기별 통계
+    - 종목별 최신 데이터
     """
     from app.models import FinancialStatement, Stock
     from sqlalchemy import func
@@ -223,15 +244,57 @@ async def get_financial_stats(db: Session = Depends(get_db)):
             .all()
         )
 
+        # 분기별 통계 ✨ 신규
+        quarterly_stats = (
+            db.query(
+                FinancialStatement.fiscal_year,
+                FinancialStatement.fiscal_quarter,
+                func.count(FinancialStatement.id)
+            )
+            .filter(FinancialStatement.fiscal_quarter.isnot(None))
+            .group_by(FinancialStatement.fiscal_year, FinancialStatement.fiscal_quarter)
+            .order_by(
+                FinancialStatement.fiscal_year.desc(),
+                FinancialStatement.fiscal_quarter.desc()
+            )
+            .limit(20)
+            .all()
+        )
+
+        # 연간/분기 개수
+        annual_count = (
+            db.query(FinancialStatement)
+            .filter(FinancialStatement.fiscal_quarter.is_(None))
+            .count()
+        )
+
+        quarterly_count = (
+            db.query(FinancialStatement)
+            .filter(FinancialStatement.fiscal_quarter.isnot(None))
+            .count()
+        )
+
         return {
             "status": "success",
             "total_statements": total_statements,
+            "by_type": {
+                "annual": annual_count,
+                "quarterly": quarterly_count
+            },
             "stocks_with_financials": stocks_with_financials,
             "year_range": {
                 "earliest": earliest_year,
                 "latest": latest_year
             },
-            "by_year": {year: count for year, count in yearly_stats}
+            "by_year": {year: count for year, count in yearly_stats},
+            "by_quarter": [
+                {
+                    "year": year,
+                    "quarter": quarter,
+                    "count": count
+                }
+                for year, quarter, count in quarterly_stats
+            ]
         }
 
     except Exception as e:

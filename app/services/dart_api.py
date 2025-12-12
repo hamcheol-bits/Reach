@@ -89,10 +89,10 @@ class DartApiService:
             corp_code: 고유번호
             year: 사업연도 (예: 2023)
             report_code: 보고서 코드
-                - 11011: 사업보고서
-                - 11012: 반기보고서
-                - 11013: 1분기보고서
-                - 11014: 3분기보고서
+                - 11011: 사업보고서 (연간)
+                - 11012: 반기보고서 (Q2)
+                - 11013: 1분기보고서 (Q1)
+                - 11014: 3분기보고서 (Q3)
             fs_div: 재무제표 구분
                 - CFS: 연결재무제표 (기본)
                 - OFS: 개별재무제표
@@ -255,10 +255,6 @@ class DartApiService:
                 print(f"❌ Stock {ticker} not found in database")
                 return False
 
-            print(f"\n{'='*60}")
-            print(f"📊 Collecting financial data for {ticker} ({stock.name})")
-            print(f"{'='*60}\n")
-
             # 2. 고유번호 조회
             corp_code = self.get_corp_code(ticker)
             if not corp_code:
@@ -279,12 +275,9 @@ class DartApiService:
                 return False
 
             # 5. 데이터 파싱
-            print(f"\n📈 Parsing financial data...")
             financial_data = self.parse_financial_data(df)
 
             # 6. DB 저장
-            print(f"\n💾 Saving to database...")
-
             # 기존 데이터 확인
             existing = db.query(FinancialStatement).filter(
                 FinancialStatement.stock_id == stock.id,
@@ -299,7 +292,6 @@ class DartApiService:
                 for key, value in financial_data.items():
                     if value is not None:
                         setattr(existing, key, value)
-                print(f"✅ Updated financial statement")
             else:
                 # 신규 생성
                 statement = FinancialStatement(
@@ -312,14 +304,8 @@ class DartApiService:
                     **financial_data
                 )
                 db.add(statement)
-                print(f"✅ Created new financial statement")
 
             db.commit()
-
-            print(f"\n{'='*60}")
-            print(f"✅ Financial data collection completed!")
-            print(f"{'='*60}\n")
-
             return True
 
         except Exception as e:
@@ -327,13 +313,13 @@ class DartApiService:
             db.rollback()
             return False
 
-
     def collect_multiple_years(
         self,
         db: Session,
         ticker: str,
         start_year: int,
-        end_year: int
+        end_year: int,
+        include_quarters: bool = False
     ) -> Dict:
         """
         여러 연도 재무제표 수집
@@ -343,15 +329,19 @@ class DartApiService:
             ticker: 종목코드
             start_year: 시작 연도
             end_year: 종료 연도
+            include_quarters: 분기 재무제표도 수집
 
         Returns:
             수집 결과 딕셔너리
         """
+        import time
+
         results = {
             'ticker': ticker,
             'years_processed': 0,
             'years_success': 0,
             'years_failed': 0,
+            'quarterly_collected': 0,
             'errors': []
         }
 
@@ -359,6 +349,7 @@ class DartApiService:
             results['years_processed'] += 1
 
             try:
+                # 연간 재무제표 수집
                 success = self.save_financial_to_db(db, ticker, year)
 
                 if success:
@@ -367,8 +358,19 @@ class DartApiService:
                     results['years_failed'] += 1
 
                 # API 속도 제한 (1초 대기)
-                import time
                 time.sleep(1)
+
+                # 분기 재무제표 수집 (옵션)
+                if include_quarters:
+                    for quarter in [1, 2, 3]:
+                        try:
+                            success_q = self.save_financial_to_db(db, ticker, year, quarter)
+                            if success_q:
+                                results['quarterly_collected'] += 1
+                            time.sleep(1)
+                        except Exception as e:
+                            error_msg = f"Error collecting {year}Q{quarter}: {str(e)}"
+                            results['errors'].append(error_msg)
 
             except Exception as e:
                 error_msg = f"Error collecting {year}: {str(e)}"
