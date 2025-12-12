@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
-import FinanceDataReader as fdr
 import pandas as pd
 from pykrx import stock
 from sqlalchemy.orm import Session
@@ -10,7 +9,7 @@ from app.models import Stock, StockPrice
 
 
 class KoreaMarketCollector:
-    """한국 시장 데이터 수집기"""
+    """한국 시장 데이터 수집기 (pykrx 통합)"""
 
     def __init__(self):
         self.market_codes = {
@@ -82,7 +81,7 @@ class KoreaMarketCollector:
             end_date: Optional[datetime] = None
     ) -> pd.DataFrame:
         """
-        주식 가격 데이터 조회 (FinanceDataReader 사용)
+        주식 가격 데이터 조회 (pykrx 사용)
 
         Args:
             ticker: 종목 코드
@@ -98,23 +97,35 @@ class KoreaMarketCollector:
             end_date = datetime.now()
 
         try:
-            # FinanceDataReader 사용 (영문 컬럼명)
-            price_df = fdr.DataReader(
-                ticker,
-                start_date.strftime('%Y-%m-%d'),
-                end_date.strftime('%Y-%m-%d')
+            # pykrx 사용 (OHLCV 데이터)
+            price_df = stock.get_market_ohlcv_by_date(
+                fromdate=start_date.strftime("%Y%m%d"),
+                todate=end_date.strftime("%Y%m%d"),
+                ticker=ticker
             )
 
-            # 필요한 컬럼만 선택
-            if not price_df.empty:
-                # 컬럼 확인 및 정규화
-                required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
-                available_columns = [col for col in required_columns if col in price_df.columns]
-                price_df = price_df[available_columns]
+            if price_df.empty:
+                return pd.DataFrame()
 
+            # 한글 컬럼명을 영문으로 변환
+            price_df = price_df.rename(columns={
+                '시가': 'Open',
+                '고가': 'High',
+                '저가': 'Low',
+                '종가': 'Close',
+                '거래량': 'Volume'
+            })
+
+            # 필요한 컬럼만 선택
+            required_columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+            available_columns = [col for col in required_columns if col in price_df.columns]
+            price_df = price_df[available_columns]
+
+            print(f"✅ [pykrx] Fetched {len(price_df)} price records for {ticker}")
             return price_df
+
         except Exception as e:
-            print(f"Error fetching price for {ticker}: {e}")
+            print(f"❌ [pykrx] Error fetching price for {ticker}: {e}")
             return pd.DataFrame()
 
     def get_market_data(
@@ -218,7 +229,7 @@ class KoreaMarketCollector:
             start_date: Optional[datetime] = None
     ) -> int:
         """
-        주식 가격 데이터를 DB에 저장
+        주식 가격 데이터를 DB에 저장 (pykrx 사용)
 
         Args:
             db: 데이터베이스 세션
@@ -234,7 +245,7 @@ class KoreaMarketCollector:
             print(f"Stock {ticker} not found in database")
             return 0
 
-        # 가격 데이터 조회
+        # 가격 데이터 조회 (pykrx)
         price_df = self.get_stock_price(ticker, start_date)
 
         if price_df.empty:
@@ -258,6 +269,7 @@ class KoreaMarketCollector:
                     existing.low = float(row['Low']) if pd.notna(row['Low']) else None
                     existing.close = float(row['Close']) if pd.notna(row['Close']) else None
                     existing.volume = int(row['Volume']) if pd.notna(row['Volume']) else None
+                    existing.adjusted_close = None  # pykrx는 조정 종가 미제공
                 else:
                     # 신규 생성
                     price = StockPrice(
@@ -267,7 +279,8 @@ class KoreaMarketCollector:
                         high=float(row['High']) if pd.notna(row['High']) else None,
                         low=float(row['Low']) if pd.notna(row['Low']) else None,
                         close=float(row['Close']) if pd.notna(row['Close']) else None,
-                        volume=int(row['Volume']) if pd.notna(row['Volume']) else None
+                        volume=int(row['Volume']) if pd.notna(row['Volume']) else None,
+                        adjusted_close=None  # pykrx는 조정 종가 미제공
                     )
                     db.add(price)
 
