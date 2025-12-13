@@ -3,6 +3,8 @@ DART (전자공시) API 서비스
 
 금융감독원 전자공시시스템에서 재무제표 데이터를 수집합니다.
 API 문서: https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS001&apiId=2019001
+
+✨ 수정 사항: 실제 DART 계정명으로 매핑 업데이트 (2024-12-13)
 """
 from datetime import datetime
 from typing import Optional, Dict, List
@@ -162,13 +164,14 @@ class DartApiService:
         }
 
         try:
-            # 계정명 매핑 (재무제표 구분 + 계정명 → 우리 필드명)
-            # 형식: (sj_div, account_name) -> field_name
+            # ✨ 계정명 매핑 (재무제표 구분 + 계정명 → 우리 필드명)
+            # 실제 DART API 응답 기준으로 수정 (2024-12-13)
             exact_mapping = {
-                # 손익계산서 (IS)
-                ('IS', '실제_매출액_계정명'): 'revenue',
-                ('IS', '실제_영업이익_계정명'): 'operating_income',
-                ('IS', '실제_당기순이익_계정명'): 'net_income',
+                # 손익계산서 (IS) - 실제 DART 계정명
+                ('IS', '매출액'): 'revenue',
+                ('IS', '영업이익'): 'operating_income',
+                ('IS', '당기순이익'): 'net_income',  # 연간보고서
+                ('IS', '분기순이익'): 'net_income',  # 분기보고서 ✨ 추가
 
                 # 재무상태표 (BS)
                 ('BS', '자산총계'): 'total_assets',
@@ -199,23 +202,26 @@ class DartApiService:
                         pass
                     continue
 
-                # 2차: 부분 일치 (백업) - 재무제표 구분 확인 필수
+                # 2차: 부분 일치 (백업) - 계정명 변형 대응
                 if sj_div == 'IS':
-                    if '영업수익' in account_nm and result['revenue'] is None:
+                    # 매출 관련 (매출액, 영업수익, 수익 등)
+                    if result['revenue'] is None and any(keyword in account_nm for keyword in ['매출액', '영업수익', '수익(매출액)']):
                         try:
                             amount = float(amount_str.replace(',', ''))
                             result['revenue'] = amount
                             print(f"  📝 [{sj_div}] {account_nm}: {amount:,.0f}")
                         except:
                             pass
-                    elif '영업이익' in account_nm and result['operating_income'] is None:
+                    # 영업이익 관련
+                    elif result['operating_income'] is None and '영업이익' in account_nm:
                         try:
                             amount = float(amount_str.replace(',', ''))
                             result['operating_income'] = amount
                             print(f"  📝 [{sj_div}] {account_nm}: {amount:,.0f}")
                         except:
                             pass
-                    elif '당기순이익' in account_nm and result['net_income'] is None:
+                    # 당기순이익 관련 (당기순이익, 분기순이익, 반기순이익 등) ✨ 개선
+                    elif result['net_income'] is None and any(kw in account_nm for kw in ['당기순이익', '분기순이익', '반기순이익', '순이익']):
                         try:
                             amount = float(amount_str.replace(',', ''))
                             result['net_income'] = amount
