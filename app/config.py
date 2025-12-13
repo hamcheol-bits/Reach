@@ -1,5 +1,5 @@
 from functools import lru_cache
-
+from pathlib import Path
 from pydantic_settings import BaseSettings
 
 
@@ -30,10 +30,11 @@ class Settings(BaseSettings):
     # API Keys
     finnhub_api_key: str = ""  # Finnhub API 키
     twelvedata_api_key: str = ""  # Twelve Data API 키
-    dart_api_key: str=""
+    dart_api_key: str = ""
 
     class Config:
-        env_file = ".env"
+        # 프로젝트 루트의 .env 파일 절대경로 지정
+        env_file = str(Path(__file__).parent.parent / ".env")
         case_sensitive = False
 
 
