@@ -1,26 +1,23 @@
 """
-배치 데이터 수집 서비스
+배치 데이터 수집 서비스 (한국 시장 전용)
 
-전체 시장의 주식 정보와 가격 데이터를 수집하는 배치 작업 관리
+KOSPI, KOSDAQ 시장의 주식 정보와 가격 데이터를 수집하는 배치 작업 관리
 """
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from typing import Dict, Optional
 import time
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from app.models import Stock, StockPrice
 from app.services.korea_market import KoreaMarketCollector
-from app.services.us_market import USMarketCollector
 
 
 class BatchCollector:
-    """배치 데이터 수집 관리자"""
+    """배치 데이터 수집 관리자 (한국 시장 전용)"""
 
     def __init__(self):
         self.korea_collector = KoreaMarketCollector()
-        self.us_collector = USMarketCollector()
 
     def get_last_collection_date(self, db: Session, ticker: str) -> Optional[datetime]:
         """
@@ -88,7 +85,7 @@ class BatchCollector:
             stocks_count = self.korea_collector.save_stocks_to_db(db, market)
             print(f"✅ Saved {stocks_count} stocks from {market}\n")
 
-            # 2. 시장 데이터 수집 (시가총액, 거래대금, 상장주식수) ⭐ 신규
+            # 2. 시장 데이터 수집 (시가총액, 거래대금, 상장주식수)
             print(f"📈 Step 2: Collecting market data (market cap, trading value, shares)...\n")
             market_data_count = self.korea_collector.save_market_data_to_db(db, market)
             results['market_data_saved'] = market_data_count
@@ -173,155 +170,18 @@ class BatchCollector:
 
         return results
 
-    def collect_us_batch(
-        self,
-        db: Session,
-        tickers: List[str] = None,
-        incremental: bool = True,
-        collect_all: bool = False,
-        markets: Optional[List[str]] = None
-    ) -> Dict:
-        """
-        미국 시장 배치 수집
-
-        Args:
-            db: 데이터베이스 세션
-            tickers: 수집할 티커 리스트 (collect_all=False일 때 사용)
-            incremental: 증분 업데이트 여부
-            collect_all: True면 DB의 모든 US 종목 수집
-            markets: 특정 market만 수집 (예: ['NYSE', 'NASDAQ'])
-
-        Returns:
-            수집 결과 딕셔너리
-        """
-        print(f"\n{'='*60}")
-        print(f"🚀 Starting US market batch collection")
-
-        # collect_all이 True면 DB에서 US 종목 조회
-        if collect_all:
-            query = db.query(Stock).filter(Stock.country == 'US')
-
-            # market 필터 추가
-            if markets:
-                print(f"   Markets filter: {markets}")
-                query = query.filter(Stock.market.in_(markets))
-
-            us_stocks = query.all()
-            tickers = [stock.ticker for stock in us_stocks]
-            print(f"   Mode: Collect ALL US stocks from DB")
-            print(f"   Found {len(tickers)} stocks")
-        else:
-            print(f"   Mode: Collect specified tickers")
-            print(f"   Tickers: {len(tickers) if tickers else 0}")
-
-        print(f"   Incremental: {'Yes' if incremental else 'No (Full)'}")
-        print(f"{'='*60}\n")
-
-        start_time = datetime.now()
-        results = {
-            'market': 'US',
-            'markets_filter': markets,
-            'collect_all': collect_all,
-            'start_time': start_time.isoformat(),
-            'stocks_processed': 0,
-            'stocks_success': 0,
-            'stocks_failed': 0,
-            'prices_saved': 0,
-            'errors': []
-        }
-
-        if not tickers:
-            print("⚠️  No tickers to process")
-            results['end_time'] = datetime.now().isoformat()
-            results['duration_seconds'] = 0
-            return results
-
-        for idx, ticker in enumerate(tickers, 1):
-            results['stocks_processed'] += 1
-
-            try:
-                print(f"[{idx}/{len(tickers)}] Processing {ticker}...")
-
-                # 1. 주식 정보가 DB에 있는지 확인
-                stock = db.query(Stock).filter(Stock.ticker == ticker).first()
-
-                if not stock:
-                    # DB에 없으면 정보 수집 시도
-                    print(f"   ↳ Stock not in DB, fetching info...")
-                    if not self.us_collector.save_stock_to_db(db, ticker):
-                        raise Exception("Failed to save stock info")
-                    stock = db.query(Stock).filter(Stock.ticker == ticker).first()
-
-                # 2. 가격 데이터 수집
-                start_date = None
-                if incremental:
-                    last_date = self.get_last_collection_date(db, ticker)
-                    if last_date:
-                        start_date = last_date + timedelta(days=1)
-                        print(f"   ↳ Incremental from {start_date.date()}")
-                    else:
-                        print(f"   ↳ First collection (1 year)")
-                else:
-                    print(f"   ↳ Full collection (1 year)")
-
-                price_count = self.us_collector.save_stock_prices_to_db(
-                    db, ticker, start_date
-                )
-
-                results['prices_saved'] += price_count
-                results['stocks_success'] += 1
-
-                print(f"   ✅ Saved {price_count} price records\n")
-
-                # API 속도 제한 (Twelve Data: 8/min)
-                # 10초 대기 = 시간당 360개 (안전)
-                if idx < len(tickers):
-                    time.sleep(10)
-
-            except Exception as e:
-                error_msg = f"Error processing {ticker}: {str(e)}"
-                print(f"   ❌ {error_msg}\n")
-                results['stocks_failed'] += 1
-                results['errors'].append(error_msg)
-                continue
-
-        # 결과 요약
-        end_time = datetime.now()
-        duration = (end_time - start_time).total_seconds()
-
-        results['end_time'] = end_time.isoformat()
-        results['duration_seconds'] = duration
-
-        print(f"\n{'='*60}")
-        print(f"✅ US market batch collection completed!")
-        print(f"{'='*60}")
-        print(f"Stocks processed: {results['stocks_processed']}")
-        print(f"  - Success: {results['stocks_success']}")
-        print(f"  - Failed: {results['stocks_failed']}")
-        print(f"Price records saved: {results['prices_saved']}")
-        print(f"Duration: {duration/60:.1f} minutes")
-        print(f"{'='*60}\n")
-
-        return results
-
     def collect_all_markets(
         self,
         db: Session,
-        korea_markets: List[str] = None,
-        us_tickers: List[str] = None,
-        us_collect_all: bool = False,
-        us_markets: Optional[List[str]] = None,
+        korea_markets: list = None,
         incremental: bool = True
     ) -> Dict:
         """
-        모든 시장 배치 수집
+        모든 한국 시장 배치 수집 (KOSPI + KOSDAQ)
 
         Args:
             db: 데이터베이스 세션
             korea_markets: 한국 시장 리스트 (기본: ['KOSPI', 'KOSDAQ'])
-            us_tickers: 미국 티커 리스트 (us_collect_all=False일 때 사용)
-            us_collect_all: True면 DB의 모든 US 종목 수집
-            us_markets: 미국 시장 필터 (예: ['NYSE', 'NASDAQ'])
             incremental: 증분 업데이트 여부
 
         Returns:
@@ -330,15 +190,10 @@ class BatchCollector:
         if korea_markets is None:
             korea_markets = ['KOSPI', 'KOSDAQ']
 
-        if us_tickers is None and not us_collect_all:
-            # 기본값: 샘플 사용 (레거시)
-            us_tickers = self.us_collector.sp500_sample
-
         start_time = datetime.now()
         all_results = {
             'start_time': start_time.isoformat(),
             'korea': {},
-            'us': {},
             'total_stocks_processed': 0,
             'total_prices_saved': 0
         }
@@ -349,18 +204,6 @@ class BatchCollector:
             all_results['korea'][market] = result
             all_results['total_stocks_processed'] += result['stocks_processed']
             all_results['total_prices_saved'] += result['prices_saved']
-
-        # 미국 시장 수집
-        us_result = self.collect_us_batch(
-            db,
-            tickers=us_tickers,
-            incremental=incremental,
-            collect_all=us_collect_all,
-            markets=us_markets
-        )
-        all_results['us'] = us_result
-        all_results['total_stocks_processed'] += us_result['stocks_processed']
-        all_results['total_prices_saved'] += us_result['prices_saved']
 
         # 전체 요약
         end_time = datetime.now()

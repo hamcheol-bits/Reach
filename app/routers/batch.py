@@ -1,10 +1,9 @@
 """
-배치 데이터 수집 API 라우터
+배치 데이터 수집 API 라우터 (한국 시장 전용)
 """
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Body
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
 
 from app.database import get_db
 from app.services.batch_collector import BatchCollector
@@ -12,28 +11,9 @@ from app.services.batch_collector import BatchCollector
 router = APIRouter(prefix="/batch", tags=["batch-collection"])
 
 
-# Request Body 스키마 정의
-class USBatchCollectRequest(BaseModel):
-    """미국 시장 배치 수집 요청 스키마"""
-    tickers: Optional[List[str]] = Field(None, description="수집할 티커 리스트")
-    collect_all: bool = Field(False, description="DB의 모든 US 종목 수집 여부")
-    markets: Optional[List[str]] = Field(None, description="특정 market만 수집 (예: ['NYSE', 'NASDAQ'])")
-    incremental: bool = Field(True, description="증분 업데이트 여부")
-
-
-class AllMarketsBatchCollectRequest(BaseModel):
-    """전체 시장 배치 수집 요청 스키마"""
-    korea_markets: Optional[List[str]] = Field(None, description="한국 시장 리스트")
-    us_tickers: Optional[List[str]] = Field(None, description="미국 티커 리스트")
-    us_collect_all: bool = Field(False, description="DB의 모든 US 종목 수집 여부")
-    us_markets: Optional[List[str]] = Field(None, description="미국 시장 필터")
-    incremental: bool = Field(True, description="증분 업데이트 여부")
-
-
 @router.post("/collect/korea/{market}")
 async def batch_collect_korea_market(
     market: str,
-    background_tasks: BackgroundTasks,
     incremental: bool = Query(True, description="증분 업데이트 여부"),
     max_stocks: Optional[int] = Query(None, description="최대 수집 종목 수 (테스트용)"),
     db: Session = Depends(get_db)
@@ -46,6 +26,15 @@ async def batch_collect_korea_market(
     - max_stocks: 테스트용 (특정 개수만 수집)
 
     **주의**: 전체 시장 수집은 시간이 오래 걸립니다 (KOSPI: ~30-40분)
+
+    **예시:**
+    ```bash
+    # KOSPI 증분 수집
+    curl -X POST "http://localhost:8001/api/v1/batch/collect/korea/KOSPI?incremental=true"
+
+    # KOSDAQ 전체 수집 (테스트 10개)
+    curl -X POST "http://localhost:8001/api/v1/batch/collect/korea/KOSDAQ?incremental=false&max_stocks=10"
+    ```
     """
     if market not in ["KOSPI", "KOSDAQ"]:
         raise HTTPException(
@@ -71,115 +60,35 @@ async def batch_collect_korea_market(
         )
 
 
-@router.post("/collect/us")
-async def batch_collect_us_market(
-    request: USBatchCollectRequest = Body(...),
-    db: Session = Depends(get_db)
-):
-    """
-    미국 시장 배치 수집
-
-    **Request Body 예시:**
-    ```json
-    {
-      "tickers": ["AAPL", "MSFT", "GOOGL"],
-      "incremental": true
-    }
-    ```
-
-    또는
-
-    ```json
-    {
-      "collect_all": true,
-      "markets": ["NYSE", "NASDAQ"],
-      "incremental": true
-    }
-    ```
-
-    **옵션 1: 특정 티커 리스트 수집**
-    - tickers: ["AAPL", "MSFT", "GOOGL"] 등
-
-    **옵션 2: DB의 모든 US 종목 수집**
-    - collect_all: true
-    - 먼저 `/api/v1/us/collect/all-stocks`로 종목 리스트 수집 필요
-
-    **옵션 3: 특정 market만 수집 (신규)** ⭐
-    - collect_all: true & markets: ["NYSE", "NASDAQ"]
-    - OTC, 기타 제외하고 주요 거래소만 수집
-
-    **주의**: API 속도 제한으로 인해 시간이 오래 걸립니다
-    - Twelve Data: 8 requests/min
-    - 100개 종목: 약 2시간
-    - 1000개 종목: 약 20시간
-
-    **권장 전략:**
-    1. NYSE, NASDAQ만 수집: markets=["NYSE", "NASDAQ"]
-    2. 소규모 테스트 후 야간/주말에 전체 수집
-    3. 스케줄러로 일일 증분 업데이트
-    """
-    collector = BatchCollector()
-
-    try:
-        result = collector.collect_us_batch(
-            db,
-            tickers=request.tickers,
-            incremental=request.incremental,
-            collect_all=request.collect_all,
-            markets=request.markets
-        )
-
-        return {
-            "status": "success",
-            "message": f"Batch collection for US stocks completed",
-            "result": result
-        }
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error in batch collection: {str(e)}"
-        )
-
-
 @router.post("/collect/all")
 async def batch_collect_all_markets(
-    request: AllMarketsBatchCollectRequest = Body(...),
+    korea_markets: Optional[List[str]] = Query(None, description="한국 시장 리스트 (기본: KOSPI, KOSDAQ)"),
+    incremental: bool = Query(True, description="증분 업데이트 여부"),
     db: Session = Depends(get_db)
 ):
     """
-    전체 시장 배치 수집 (한국 + 미국)
-
-    **Request Body 예시:**
-    ```json
-    {
-      "korea_markets": ["KOSPI", "KOSDAQ"],
-      "us_collect_all": true,
-      "us_markets": ["NYSE", "NASDAQ"],
-      "incremental": true
-    }
-    ```
+    전체 한국 시장 배치 수집 (KOSPI + KOSDAQ)
 
     - korea_markets: 한국 시장 리스트 (기본: ["KOSPI", "KOSDAQ"])
-    - us_tickers: 미국 티커 리스트 (us_collect_all=False일 때)
-    - us_collect_all: True면 DB의 모든 US 종목 수집
-    - us_markets: 미국 시장 필터 (신규) ⭐
     - incremental: True면 마지막 수집일 이후만
 
-    **경고**: 전체 수집은 매우 오래 걸립니다
-    - 한국: KOSPI + KOSDAQ = 약 1.5시간
-    - 미국: 종목 수에 따라 수 시간 ~ 수십 시간
+    **경고**: 전체 수집은 오래 걸립니다
+    - KOSPI + KOSDAQ = 약 1-1.5시간
 
-    **권장 순서:**
-    1. 먼저 `/api/v1/us/collect/all-stocks`로 US 종목 리스트 수집
-    2. 그 다음 이 API로 가격 데이터 수집
-       - 주요 거래소만: us_markets=["NYSE", "NASDAQ"]
-       - 또는 전체: us_collect_all=true
+    **예시:**
+    ```bash
+    # 전체 시장 증분 수집
+    curl -X POST "http://localhost:8001/api/v1/batch/collect/all?incremental=true"
+
+    # KOSPI만 전체 수집
+    curl -X POST "http://localhost:8001/api/v1/batch/collect/all?korea_markets=KOSPI&incremental=false"
+    ```
     """
     collector = BatchCollector()
 
     # 기본값 설정
-    korea_markets = request.korea_markets or ['KOSPI', 'KOSDAQ']
+    if korea_markets is None:
+        korea_markets = ['KOSPI', 'KOSDAQ']
 
     # 유효성 검사
     for market in korea_markets:
@@ -193,10 +102,7 @@ async def batch_collect_all_markets(
         result = collector.collect_all_markets(
             db,
             korea_markets,
-            request.us_tickers,
-            request.us_collect_all,
-            request.us_markets,
-            request.incremental
+            incremental
         )
 
         return {
@@ -217,7 +123,12 @@ async def get_collection_stats(db: Session = Depends(get_db)):
     """
     데이터 수집 통계 조회
 
-    각 시장별로 수집된 종목 수와 최신 가격/시장 데이터 날짜를 반환
+    한국 시장별로 수집된 종목 수와 최신 가격/시장 데이터 날짜를 반환
+
+    **예시:**
+    ```bash
+    curl "http://localhost:8001/api/v1/batch/stats"
+    ```
     """
     from app.models import Stock, StockPrice, StockMarketData
     from sqlalchemy import func
@@ -234,16 +145,6 @@ async def get_collection_stats(db: Session = Depends(get_db)):
             Stock.market == 'KOSDAQ'
         ).count()
 
-        # 미국 시장 통계 (market별)
-        us_market_stats = (
-            db.query(Stock.market, func.count(Stock.id))
-            .filter(Stock.country == 'US')
-            .group_by(Stock.market)
-            .all()
-        )
-
-        us_total = db.query(Stock).filter(Stock.country == 'US').count()
-
         # 최신 가격 데이터 날짜
         latest_price = (
             db.query(func.max(StockPrice.trade_date))
@@ -259,7 +160,7 @@ async def get_collection_stats(db: Session = Depends(get_db)):
             .scalar()
         )
 
-        # 시장 데이터 통계 ⭐ 신규 추가
+        # 시장 데이터 통계
         latest_market_data = (
             db.query(func.max(StockMarketData.trade_date))
             .scalar()
@@ -280,18 +181,14 @@ async def get_collection_stats(db: Session = Depends(get_db)):
                     "kosdaq": kosdaq_count,
                     "total": kospi_count + kosdaq_count
                 },
-                "us": {
-                    "by_market": {market: count for market, count in us_market_stats},
-                    "total": us_total
-                },
-                "total": kospi_count + kosdaq_count + us_total
+                "total": kospi_count + kosdaq_count
             },
             "prices": {
                 "total_records": total_prices,
                 "stocks_with_prices": stocks_with_prices,
                 "latest_date": latest_price.isoformat() if latest_price else None
             },
-            "market_data": {  # ⭐ 신규 추가
+            "market_data": {
                 "total_records": total_market_data,
                 "stocks_with_market_data": stocks_with_market_data,
                 "latest_date": latest_market_data.isoformat() if latest_market_data else None
