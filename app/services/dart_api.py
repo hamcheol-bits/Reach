@@ -166,9 +166,9 @@ class DartApiService:
             # 형식: (sj_div, account_name) -> field_name
             exact_mapping = {
                 # 손익계산서 (IS)
-                ('IS', '영업수익'): 'revenue',
-                ('IS', '영업이익'): 'operating_income',
-                ('IS', '지배기업의 소유주에게 귀속되는 당기순이익(손실)'): 'net_income',
+                ('IS', '실제_매출액_계정명'): 'revenue',
+                ('IS', '실제_영업이익_계정명'): 'operating_income',
+                ('IS', '실제_당기순이익_계정명'): 'net_income',
 
                 # 재무상태표 (BS)
                 ('BS', '자산총계'): 'total_assets',
