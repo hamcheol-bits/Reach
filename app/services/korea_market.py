@@ -9,7 +9,7 @@ from app.models import Stock, StockPrice
 
 
 class KoreaMarketCollector:
-    """한국 시장 데이터 수집기 (pykrx 통합)"""
+    """한국 시장 데이터 수집기 (pykrx 통합) - v2: 휴장일 필터링 추가"""
 
     def __init__(self):
         self.market_codes = {
@@ -301,7 +301,7 @@ class KoreaMarketCollector:
             date: Optional[datetime] = None
     ) -> int:
         """
-        시장 데이터를 DB에 저장
+        시장 데이터를 DB에 저장 (✨ 휴장일 필터링 포함)
 
         Args:
             db: 데이터베이스 세션
@@ -310,6 +310,10 @@ class KoreaMarketCollector:
 
         Returns:
             저장된 레코드 수
+
+        ✨ 개선사항:
+            - 휴장일 데이터 자동 필터링 (market_cap=0, trading_value=0)
+            - 유효하지 않은 데이터는 저장하지 않음
         """
         from app.models import Stock, StockMarketData
 
@@ -324,17 +328,42 @@ class KoreaMarketCollector:
             return 0
 
         saved_count = 0
+        skipped_count = 0
+        holiday_detected = False
 
         for ticker, row in market_df.iterrows():
             try:
-                # 종목 조회
+                # 🔍 휴장일 감지: 시가총액과 거래대금이 모두 0
+                market_cap = row.get('MarketCap', 0)
+                trading_value = row.get('TradingValue', 0)
+
+                # 휴장일 체크 (둘 다 0이면 휴장일)
+                if pd.notna(market_cap) and pd.notna(trading_value):
+                    if market_cap == 0 and trading_value == 0:
+                        if not holiday_detected:
+                            print(f"🚫 Holiday detected on {date.date()}: market_cap=0, trading_value=0")
+                            print(f"   Skipping all data for this date")
+                            holiday_detected = True
+                        skipped_count += 1
+                        continue  # ✅ 저장하지 않고 건너뜀
+
+                # NULL 체크 (둘 다 NULL이어도 휴장일)
+                if pd.isna(market_cap) and pd.isna(trading_value):
+                    if not holiday_detected:
+                        print(f"🚫 Holiday detected on {date.date()}: market_cap=NULL, trading_value=NULL")
+                        print(f"   Skipping all data for this date")
+                        holiday_detected = True
+                    skipped_count += 1
+                    continue
+
+                # ✅ 정상 데이터: 종목 조회
                 stock_obj = db.query(Stock).filter(
                     Stock.ticker == ticker,
                     Stock.market == market
                 ).first()
 
                 if not stock_obj:
-                    print(f"Stock {ticker} not found in database, skipping...")
+                    skipped_count += 1
                     continue
 
                 # 기존 데이터 확인
@@ -343,9 +372,10 @@ class KoreaMarketCollector:
                     StockMarketData.trade_date == date.date()
                 ).first()
 
+                # ✅ 개선: 0 값도 NULL로 저장 (의미 있는 0과 구분)
                 market_data = {
-                    'market_cap': float(row['MarketCap']) if pd.notna(row['MarketCap']) else None,
-                    'trading_value': float(row['TradingValue']) if pd.notna(row['TradingValue']) else None,
+                    'market_cap': float(market_cap) if (pd.notna(market_cap) and market_cap > 0) else None,
+                    'trading_value': float(trading_value) if (pd.notna(trading_value) and trading_value > 0) else None,
                     'shares_outstanding': int(row['SharesOutstanding']) if pd.notna(row['SharesOutstanding']) else None,
                 }
 
@@ -374,5 +404,14 @@ class KoreaMarketCollector:
                 continue
 
         db.commit()
-        print(f"Saved {saved_count} market data records for {market}")
+
+        # 결과 출력
+        if holiday_detected:
+            print(f"🚫 Holiday on {date.date()}: Skipped {skipped_count} records")
+            print(f"✅ Saved: {saved_count} valid records (if any)")
+        else:
+            print(f"✅ Saved {saved_count} market data records for {market}")
+            if skipped_count > 0:
+                print(f"⏭️  Skipped {skipped_count} records (stock not found in DB)")
+
         return saved_count
