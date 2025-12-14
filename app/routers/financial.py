@@ -422,12 +422,12 @@ async def get_ratio_stats(db: Session = Depends(get_db)):
 
         # 최신/최구 데이터 날짜
         latest_date = (
-            db.query(func.max(FinancialRatio.date))
+            db.query(func.max(FinancialRatio.fiscal_date))
             .scalar()
         )
 
         earliest_date = (
-            db.query(func.min(FinancialRatio.date))
+            db.query(func.min(FinancialRatio.fiscal_date))
             .scalar()
         )
 
@@ -500,7 +500,7 @@ async def get_ratios_for_stock(
         ratios = (
             db.query(FinancialRatio)
             .filter(FinancialRatio.stock_id == stock.id)
-            .order_by(FinancialRatio.date.desc())
+            .order_by(FinancialRatio.fiscal_date.desc())
             .limit(limit)
             .all()
         )
@@ -517,7 +517,8 @@ async def get_ratios_for_stock(
         items = []
         for ratio in ratios:
             items.append({
-                "date": ratio.date.isoformat(),
+                "fiscal_date": ratio.fiscal_date.isoformat(),
+                "report_type": ratio.report_type,
                 "roe": float(ratio.roe) if ratio.roe else None,
                 "roa": float(ratio.roa) if ratio.roa else None,
                 "operating_margin": float(ratio.operating_margin) if ratio.operating_margin else None,

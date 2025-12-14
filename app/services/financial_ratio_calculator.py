@@ -291,7 +291,7 @@ class FinancialRatioCalculator:
             # 기존 데이터 확인
             existing = db.query(FinancialRatio).filter(
                 FinancialRatio.stock_id == stock_id,
-                FinancialRatio.date == ratios['date']
+                FinancialRatio.fiscal_date == ratios['date']
             ).first()
 
             ratio_data = {
@@ -314,7 +314,8 @@ class FinancialRatioCalculator:
                 # 신규 생성
                 ratio = FinancialRatio(
                     stock_id=stock_id,
-                    date=ratios['date'],
+                    fiscal_date=ratios['date'],
+                    report_type=ratios.get('period', 'annual'),  # 신규 추가
                     roe=Decimal(str(ratio_data['roe'])) if ratio_data['roe'] is not None else None,
                     roa=Decimal(str(ratio_data['roa'])) if ratio_data['roa'] is not None else None,
                     operating_margin=Decimal(str(ratio_data['operating_margin'])) if ratio_data['operating_margin'] is not None else None,

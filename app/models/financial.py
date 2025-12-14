@@ -10,11 +10,14 @@ class FinancialStatement(Base):
     __tablename__ = "financial_statements"
 
     id = Column(BigInteger, primary_key=True, index=True)
-    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False)
-    fiscal_year = Column(Integer, nullable=False)
-    fiscal_quarter = Column(Integer)  # 1~4, NULL이면 연간
-    statement_type = Column(String(20), nullable=False)  # IS, BS, CF
-    report_date = Column(Date, nullable=False, index=True)
+    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False, index=True)
+    fiscal_year = Column(Integer, nullable=False, index=True)
+    fiscal_quarter = Column(Integer)  # 1~3, NULL이면 연간
+    fiscal_date = Column(Date, nullable=False, index=True)  # 재무제표 기준일 (신규 추가)
+    report_type = Column(String(20), nullable=False, index=True)  # annual, Q1, Q2, Q3 (신규 추가)
+    statement_type = Column(String(20), nullable=False)  # IS, BS, CF (레거시, 호환용)
+    report_date = Column(Date, nullable=False, index=True)  # 보고서 제출일 (레거시, 호환용)
+
 
     # 손익계산서
     revenue = Column(DECIMAL(20, 2))
@@ -46,8 +49,9 @@ class FinancialRatio(Base):
     __tablename__ = "financial_ratios"
 
     id = Column(BigInteger, primary_key=True, index=True)
-    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False)
-    date = Column(Date, nullable=False, index=True)
+    stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False, index=True)
+    fiscal_date = Column(Date, nullable=False, index=True)  # 재무제표 기준일 (변경: date -> fiscal_date)
+    report_type = Column(String(20), nullable=False, index=True)  # annual, Q1, Q2, Q3 (신규 추가)
 
     # 수익성
     roe = Column(DECIMAL(10, 4))
@@ -69,4 +73,4 @@ class FinancialRatio(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     def __repr__(self):
-        return f"<FinancialRatio(stock_id={self.stock_id}, date={self.date})>"
+        return f"<FinancialRatio(stock_id={self.stock_id}, fiscal_date={self.fiscal_date}, type={self.report_type})>"
