@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import health, stock, korea, batch, financial, pykrx_debug
+from app.routers import health, stock, korea, batch, financial, pykrx_debug, data_quality
 
 settings = get_settings()
 
@@ -28,6 +28,7 @@ app.include_router(korea.router, prefix="/api/v1")
 app.include_router(batch.router, prefix="/api/v1")
 app.include_router(financial.router, prefix="/api/v1")
 app.include_router(pykrx_debug.router, prefix="/api/v1")  # pykrx 디버깅 API
+app.include_router(data_quality.router, prefix="/api/v1")  # 데이터 품질 검증 API
 
 
 @app.get("/")
