@@ -106,6 +106,8 @@ class FinancialRatioCalculator:
         """
         PER (Price to Earnings Ratio) = 시가총액 / 당기순이익
 
+        극단값 필터링: PER > 10000 또는 PER < -1000이면 None 반환
+
         Args:
             market_cap: 시가총액
             net_income: 당기순이익
@@ -116,12 +118,20 @@ class FinancialRatioCalculator:
         if not net_income or net_income <= 0:
             return None
 
-        return market_cap / net_income
+        per = market_cap / net_income
+
+        # 극단값 필터링 (PER이 너무 크거나 작으면 의미 없음)
+        if per > 10000 or per < -1000:
+            return None
+
+        return per
 
     @staticmethod
     def calculate_pbr(market_cap: float, total_equity: float) -> Optional[float]:
         """
         PBR (Price to Book Ratio) = 시가총액 / 자본총계
+
+        극단값 필터링: PBR > 1000 또는 PBR < -100이면 None 반환
 
         Args:
             market_cap: 시가총액
@@ -133,12 +143,20 @@ class FinancialRatioCalculator:
         if not total_equity or total_equity <= 0:
             return None
 
-        return market_cap / total_equity
+        pbr = market_cap / total_equity
+
+        # 극단값 필터링
+        if pbr > 1000 or pbr < -100:
+            return None
+
+        return pbr
 
     @staticmethod
     def calculate_psr(market_cap: float, revenue: float) -> Optional[float]:
         """
         PSR (Price to Sales Ratio) = 시가총액 / 매출액
+
+        극단값 필터링: PSR > 1000 또는 PSR < -100이면 None 반환
 
         Args:
             market_cap: 시가총액
@@ -150,7 +168,13 @@ class FinancialRatioCalculator:
         if not revenue or revenue <= 0:
             return None
 
-        return market_cap / revenue
+        psr = market_cap / revenue
+
+        # 극단값 필터링
+        if psr > 1000 or psr < -100:
+            return None
+
+        return psr
 
     def calculate_ratios_for_statement(
         self,
@@ -199,13 +223,23 @@ class FinancialRatioCalculator:
                     day = 31
                 target_date = datetime(fiscal_year, month, day).date()
 
-            # 시가총액 데이터 조회 (가장 가까운 날짜)
+            # 시가총액 데이터 조회 (가장 가까운 날짜, 90일 이내)
+            from datetime import timedelta
+            min_date = target_date - timedelta(days=90)  # 90일 제한 추가
+
             market_data = db.query(StockMarketData).filter(
                 StockMarketData.stock_id == stock_id,
-                StockMarketData.trade_date <= target_date
+                StockMarketData.trade_date <= target_date,
+                StockMarketData.trade_date >= min_date,  # 범위 제한
+                StockMarketData.market_cap.isnot(None),
+                StockMarketData.market_cap > 0
             ).order_by(StockMarketData.trade_date.desc()).first()
 
             market_cap = float(market_data.market_cap) if market_data and market_data.market_cap else None
+
+            # 디버깅: 시가총액 없으면 로그
+            if market_cap is None:
+                print(f"  ⚠️  시가총액 없음: stock_id={stock_id}, target={target_date}")
 
             # 3. 재무제표 데이터 추출 (None 체크)
             revenue = float(statement.revenue) if statement.revenue else None
