@@ -1,31 +1,29 @@
-# Reach - 금융 데이터 수집 API 🚀
+# Reach - 한국 금융 데이터 수집 API 🚀
 
-한국(KOSPI, KOSDAQ) 및 미국(전체 US 시장) 금융 데이터를 수집하는 FastAPI 기반 서비스입니다.
+한국(KOSPI, KOSDAQ) 주식 시장의 금융 데이터를 수집하는 FastAPI 기반 서비스입니다.
 
 ## 주요 기능
 
-✨ **포괄적인 시장 커버리지**
-- 한국: KOSPI (~900개), KOSDAQ (~1,500개)
-- 미국: NYSE, NASDAQ 등 전체 US 시장 (~8,000개 Common Stocks)
+✨ **포괄적인 한국 시장 커버리지**
+- KOSPI (~900개 종목)
+- KOSDAQ (~1,500개 종목)
 
-⚡ **효율적인 데이터 수집**
-- **증분 업데이트**: 마지막 수집일 이후 데이터만 효율적으로 업데이트
-- **Market 필터링**: 특정 거래소만 선택적으로 수집 가능
-- **배치 처리**: 전체 시장 데이터 일괄 수집
-
-✨ **포괄적인 데이터 수집**
+⚡ **다양한 데이터 수집**
 - **주식 정보**: 종목 코드, 이름, 시장, 섹터 (pykrx)
 - **주가 데이터**: OHLCV (Open, High, Low, Close, Volume)
 - **시장 데이터**: 시가총액, 거래대금, 상장주식수
+- **재무제표**: 손익계산서, 재무상태표, 현금흐름표 (DART API)
+- **재무비율**: ROE, ROA, PER, PBR, PSR 등 자동 계산
 
-🤖 **자동화**
-- APScheduler 기반 정기 자동 수집
-- Cron 표현식으로 유연한 스케줄 설정
-- 일별/시간별 자동 증분 업데이트
+🤖 **효율적인 데이터 관리**
+- **증분 업데이트**: 마지막 수집일 이후 데이터만 업데이트
+- **배치 처리**: 전체 시장 데이터 일괄 수집
+- **자동 계산**: 재무제표 기반 재무비율 자동 계산
+- **품질 검증**: 데이터 완성도 및 이상치 자동 탐지
 
 📊 **RESTful API**
 - Swagger UI 자동 생성 (`/docs`)
-- Request Body 기반 직관적인 API 설계
+- 직관적인 엔드포인트 설계
 - 실시간 통계 조회
 
 ## 기술 스택
@@ -34,8 +32,7 @@
 |---------|------|
 | **Backend** | FastAPI, Python 3.11+ |
 | **Database** | MySQL 8.0, SQLAlchemy ORM |
-| **Data Sources** | Finnhub, Twelve Data, pykrx, FinanceDataReader |
-| **Scheduler** | APScheduler |
+| **Data Sources** | pykrx, FinanceDataReader, DART API |
 | **Deployment** | Docker, Docker Compose |
 
 ## 빠른 시작
@@ -44,8 +41,8 @@
 
 ```bash
 # 저장소 클론
-git clone https://github.com/yourusername/reach.git
-cd reach
+git clone https://github.com/hamcheol-bits/Reach.git
+cd Reach
 
 # 가상환경 생성 및 활성화
 python -m venv venv
@@ -61,23 +58,32 @@ pip install -r requirements.txt
 
 ```env
 # Database
-DATABASE_URL=mysql+pymysql://user:password@localhost:3306/reach_db
+DATABASE_URL=....
 
-# API Keys
-FINNHUB_API_KEY=your_finnhub_api_key
-TWELVEDATA_API_KEY=your_twelvedata_api_key
+# DART API Key (재무제표 수집용)
+DART_API_KEY=your_dart_api_key
 
-# Scheduler (선택)
-ENABLE_SCHEDULER=false
-KOREA_SCHEDULE=0 18 * * 1-5
-US_SCHEDULE=0 10 * * 1-5
+# Application
+APP_NAME=Reach
+APP_VERSION=0.2.0
+APP_HOST=0.0.0.0
+APP_PORT=8001
 ```
 
-**무료 API 키 발급:**
-- Finnhub: https://finnhub.io/register
-- Twelve Data: https://twelvedata.com/pricing
+**DART API 키 발급:**
+- https://opendart.fss.or.kr/ 회원가입 후 API 키 신청
 
-### 3. 서버 실행
+### 3. 데이터베이스 설정 (Docker)
+
+```bash
+# Docker Compose로 MySQL 시작
+docker-compose up -d mysql
+
+# 데이터베이스 초기화 확인
+docker exec -it valyria-mysql mysql -u finuser -p
+```
+
+### 4. 서버 실행
 
 ```bash
 # 개발 모드
@@ -93,143 +99,165 @@ uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 
 ## 사용 예시
 
-### 1️⃣ 미국 주식 리스트 수집
+### 1️⃣ 주식 리스트 수집
 
 ```bash
-# 전체 US 주식 리스트 수집 (약 5-10분)
-curl -X POST "http://localhost:8001/api/v1/us/collect/all-stocks?filter_common=true"
+# KOSPI 전체 종목 리스트 수집
+curl -X POST "http://localhost:8001/api/v1/korea/collect/stocks?market=KOSPI"
+
+# KOSDAQ 전체 종목 리스트 수집
+curl -X POST "http://localhost:8001/api/v1/korea/collect/stocks?market=KOSDAQ"
 ```
 
-### 2️⃣ 가격 데이터 수집 (소규모 테스트)
+### 2️⃣ 배치 수집 (주가 + 시장 데이터)
 
 ```bash
-# 샘플 2개 종목 테스트
-curl -X POST "http://localhost:8001/api/v1/batch/collect/us" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tickers": ["AAPL", "MSFT"],
-    "incremental": true
-  }'
-```
-
-### 3️⃣ NYSE + NASDAQ만 수집 (권장)
-
-```bash
-# 주요 거래소만 선택적 수집
-curl -X POST "http://localhost:8001/api/v1/batch/collect/us" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "collect_all": true,
-    "markets": ["NYSE", "NASDAQ"],
-    "incremental": true
-  }'
-```
-
-**예상 소요 시간:**
-- NYSE + NASDAQ: ~6,500개 → 약 14시간
-- Twelve Data 제약: 8 requests/min
-
-### 4️⃣ 한국 시장 수집
-
-```bash
-# KOSPI 전체 수집 (종목정보 + 시장데이터 + 주가)
+# KOSPI 전체 수집 (증분 모드)
 curl -X POST "http://localhost:8001/api/v1/batch/collect/korea/KOSPI?incremental=true"
 
 # KOSDAQ 전체 수집 (약 40분)
 curl -X POST "http://localhost:8001/api/v1/batch/collect/korea/KOSDAQ?incremental=true"
+
+# 테스트 (10개만)
+curl -X POST "http://localhost:8001/api/v1/batch/collect/korea/KOSPI?incremental=true&max_stocks=10"
 ```
 
-### 5️⃣ 통계 확인
+### 3️⃣ 재무제표 수집
 
 ```bash
+# 삼성전자 2023년 연간 재무제표
+curl -X POST "http://localhost:8001/api/v1/financial/collect/005930?year=2023"
+
+# 삼성전자 2023년 1분기
+curl -X POST "http://localhost:8001/api/v1/financial/collect/005930?year=2023&quarter=1"
+
+# 여러 연도 수집 (2020~2023, 연간만)
+curl -X POST "http://localhost:8001/api/v1/financial/collect/005930/multiple-years?start_year=2020&end_year=2023"
+
+# 여러 연도 수집 (연간 + 분기)
+curl -X POST "http://localhost:8001/api/v1/financial/collect/005930/multiple-years?start_year=2023&end_year=2023&include_quarters=true"
+```
+
+### 4️⃣ 재무제표 배치 수집
+
+```bash
+# 전체 종목 2023~2025년 연간 재무제표
+curl -X POST "http://localhost:8001/api/v1/financial/batch/collect-all?start_year=2023&end_year=2025"
+
+# 전체 종목 연간 + 분기 (시간 오래 걸림!)
+curl -X POST "http://localhost:8001/api/v1/financial/batch/collect-all?start_year=2023&end_year=2025&include_quarters=true"
+
+# 증분 수집 (누락분만)
+curl -X POST "http://localhost:8001/api/v1/financial/batch/collect-all?start_year=2023&end_year=2025&incremental=true"
+
+# 테스트 (10개만)
+curl -X POST "http://localhost:8001/api/v1/financial/batch/collect-all?limit=10&start_year=2025&end_year=2025"
+```
+
+### 5️⃣ 재무비율 계산
+
+```bash
+# 삼성전자 재무비율 계산
+curl -X POST "http://localhost:8001/api/v1/financial/ratios/calculate/005930"
+
+# 전체 종목 재무비율 계산
+curl -X POST "http://localhost:8001/api/v1/financial/ratios/batch-calculate"
+
+# 테스트 (10개만)
+curl -X POST "http://localhost:8001/api/v1/financial/ratios/batch-calculate?limit=10"
+
+# KOSPI만 계산
+curl -X POST "http://localhost:8001/api/v1/financial/ratios/batch-calculate?market=KOSPI"
+```
+
+### 6️⃣ 데이터 품질 확인
+
+```bash
+# 품질 요약
+curl "http://localhost:8001/api/v1/data-quality/summary"
+
+# 전체 품질 리포트
+curl "http://localhost:8001/api/v1/data-quality/report"
+
+# 데이터 완성도
+curl "http://localhost:8001/api/v1/data-quality/completeness"
+
+# 이상치 탐지
+curl "http://localhost:8001/api/v1/data-quality/anomalies?limit=100"
+
+# 누락 데이터
+curl "http://localhost:8001/api/v1/data-quality/missing?limit=50"
+```
+
+### 7️⃣ 통계 조회
+
+```bash
+# 전체 통계
 curl "http://localhost:8001/api/v1/batch/stats"
+
+# 재무제표 통계
+curl "http://localhost:8001/api/v1/financial/stats"
+
+# 재무비율 통계
+curl "http://localhost:8001/api/v1/financial/ratios/stats"
 ```
 
-**응답 예시:**
-```json
-{
-  "stocks": {
-    "korea": {
-      "kospi": 900,
-      "kosdaq": 1500,
-      "total": 2400
-    },
-    "us": {
-      "by_market": {
-        "NYSE": 3000,
-        "NASDAQ": 3500
-      },
-      "total": 6500
-    }
-  },
-  "prices": {
-    "total_records": 50000,
-    "stocks_with_prices": 100,
-    "latest_date": "2024-12-09"
-  }
-}
-```
-
-### 6️⃣ 스케줄러 설정 (일일 자동 수집)
+### 8️⃣ 데이터 조회
 
 ```bash
-# 스케줄러 시작 (월-금 자동 수집)
-curl -X POST "http://localhost:8001/api/v1/scheduler/start"
+# 주식 목록 조회
+curl "http://localhost:8001/api/v1/stocks?country=KR&market=KOSPI&limit=10"
 
-# 상태 확인
-curl "http://localhost:8001/api/v1/scheduler/status"
+# 특정 종목 정보
+curl "http://localhost:8001/api/v1/stocks/005930"
 
-# 즉시 실행
-curl -X POST "http://localhost:8001/api/v1/scheduler/run/korea"
+# 주가 데이터 조회
+curl "http://localhost:8001/api/v1/stocks/005930/prices?limit=30"
+
+# 재무비율 조회
+curl "http://localhost:8001/api/v1/financial/ratios/005930?limit=10"
 ```
 
 ## API 엔드포인트
 
-### 📊 주식 조회
+### 📊 주식 (Stocks)
+- `GET /api/v1/stocks` - 주식 목록 조회
+- `GET /api/v1/stocks/{ticker}` - 특정 주식 정보
+- `GET /api/v1/stocks/{ticker}/prices` - 주가 데이터 조회
 
-```bash
-# 주식 목록 조회
-GET /api/v1/stocks?country=US&market=NYSE&limit=100
+### 🇰🇷 한국 시장 (Korea Market)
+- `POST /api/v1/korea/collect/stocks` - 종목 리스트 수집
+- `POST /api/v1/korea/collect/prices/{ticker}` - 개별 종목 주가 수집
+- `POST /api/v1/korea/collect/market-data` - 시장 데이터 수집
+- `GET /api/v1/korea/stocks/preview` - 종목 미리보기
 
-# 특정 주식 정보
-GET /api/v1/stocks/{ticker}
+### 🔄 배치 수집 (Batch Collection)
+- `POST /api/v1/batch/collect/korea/{market}` - 시장별 배치 수집
+- `POST /api/v1/batch/collect/all` - 전체 시장 배치 수집
+- `GET /api/v1/batch/stats` - 수집 통계
 
-# 주가 데이터 조회
-GET /api/v1/stocks/{ticker}/prices?limit=100
-```
+### 📈 재무제표 (Financial Statements)
+- `POST /api/v1/financial/collect/{ticker}` - 개별 종목 재무제표 수집
+- `POST /api/v1/financial/collect/{ticker}/multiple-years` - 여러 연도 수집
+- `POST /api/v1/financial/batch/collect-all` - 전체 종목 배치 수집
+- `GET /api/v1/financial/stats` - 재무제표 통계
 
-### 🔄 배치 수집
+### 📊 재무비율 (Financial Ratios)
+- `POST /api/v1/financial/ratios/calculate/{ticker}` - 개별 종목 비율 계산
+- `POST /api/v1/financial/ratios/batch-calculate` - 전체 배치 계산
+- `GET /api/v1/financial/ratios/{ticker}` - 비율 조회
+- `GET /api/v1/financial/ratios/stats` - 비율 통계
 
-```bash
-# 한국 시장 배치 수집
-POST /api/v1/batch/collect/korea/{market}
+### 🔍 데이터 품질 (Data Quality)
+- `GET /api/v1/data-quality/summary` - 품질 요약
+- `GET /api/v1/data-quality/report` - 전체 리포트
+- `GET /api/v1/data-quality/completeness` - 완성도 체크
+- `GET /api/v1/data-quality/anomalies` - 이상치 탐지
+- `GET /api/v1/data-quality/missing` - 누락 데이터
 
-# 미국 시장 배치 수집 (Request Body)
-POST /api/v1/batch/collect/us
-Body: {
-  "collect_all": true,
-  "markets": ["NYSE", "NASDAQ"],
-  "incremental": true
-}
-
-# 통계 조회
-GET /api/v1/batch/stats
-```
-
-### ⏰ 스케줄러
-
-```bash
-# 스케줄러 시작/중지
-POST /api/v1/scheduler/start
-POST /api/v1/scheduler/stop
-
-# 상태 조회
-GET /api/v1/scheduler/status
-
-# 즉시 실행
-POST /api/v1/scheduler/run/korea
-POST /api/v1/scheduler/run/us
-```
+### 🛠️ 디버깅 (Debugging)
+- `GET /api/v1/pykrx/market-data` - pykrx 직접 조회
+- `GET /api/v1/pykrx/check-trading-day` - 거래일 확인
 
 전체 API 문서: http://localhost:8001/docs
 
@@ -239,25 +267,29 @@ POST /api/v1/scheduler/run/us
 reach/
 ├── app/
 │   ├── main.py                 # FastAPI 앱
-│   ├── config.py               # 설정 (환경변수)
+│   ├── config.py               # 설정
 │   ├── models/                 # DB 모델
-│   │   ├── stock.py           # 주식 정보
-│   │   ├── price.py           # 주가 데이터
-│   │   └── financial.py       # 재무제표 (예정)
+│   │   ├── stock.py           # 주식
+│   │   ├── price.py           # 주가
+│   │   ├── market_data.py     # 시장 데이터
+│   │   └── financial.py       # 재무제표, 재무비율
 │   ├── schemas/                # Pydantic 스키마
 │   ├── routers/                # API 라우터
-│   │   ├── stock.py           # 주식 조회 API
-│   │   ├── batch.py           # 배치 수집 API ⭐
-│   │   ├── scheduler.py       # 스케줄러 관리 ⭐
-│   │   ├── korea.py           # 한국 시장 API
-│   │   └── us.py              # 미국 시장 API
+│   │   ├── stock.py           # 주식 조회
+│   │   ├── korea.py           # 한국 시장
+│   │   ├── batch.py           # 배치 수집
+│   │   ├── financial.py       # 재무제표/비율
+│   │   ├── data_quality.py    # 데이터 품질
+│   │   └── pykrx_debug.py     # 디버깅
 │   ├── services/               # 비즈니스 로직
-│   │   ├── batch_collector.py # 배치 수집 서비스 ⭐
-│   │   ├── scheduler.py       # 스케줄러 서비스 ⭐
 │   │   ├── korea_market.py    # 한국 시장 수집
-│   │   └── us_market.py       # 미국 시장 수집
+│   │   ├── batch_collector.py # 배치 수집
+│   │   ├── dart_api.py        # 재무제표 수집
+│   │   ├── financial_batch.py # 재무제표 배치
+│   │   ├── financial_ratio_calculator.py  # 재무비율 계산
+│   │   └── data_quality_checker.py  # 품질 검증
 │   └── database/               # DB 연결
-├── test/                       # 테스트 스크립트
+├── test/                       # 테스트/마이그레이션 스크립트
 ├── .env                        # 환경 변수
 ├── requirements.txt            # 의존성
 └── README.md
@@ -265,88 +297,66 @@ reach/
 
 ## 데이터 소스
 
-| 시장 | 데이터 소스 | 용도 |
-|-----|-----------|-----|
-| 🇰🇷 한국 | pykrx | 종목 리스트 |
-| 🇰🇷 한국 | FinanceDataReader | 주가 데이터 |
-| 🇺🇸 미국 | Finnhub | 종목 리스트 (~29,000개) |
-| 🇺🇸 미국 | Twelve Data | 주가 데이터 |
+| 데이터 | 소스 | 용도 |
+|--------|------|------|
+| 종목 리스트 | pykrx | 주식 정보, 섹터 |
+| 주가 데이터 | pykrx | OHLCV |
+| 시장 데이터 | pykrx | 시가총액, 거래대금, 상장주식수 |
+| 재무제표 | DART API | 손익계산서, 재무상태표, 현금흐름표 |
+| 재무비율 | 자체 계산 | ROE, ROA, PER, PBR, PSR 등 |
 
-### API 제약사항
+## 계산되는 재무비율
 
-**Finnhub (무료)**
-- 60 requests/min
-- Stock Symbols: 무제한
+### 수익성 지표
+- **ROE** (자기자본이익률) = 당기순이익 / 자본총계 × 100
+- **ROA** (총자산이익률) = 당기순이익 / 자산총계 × 100
+- **영업이익률** = 영업이익 / 매출액 × 100
+- **순이익률** = 당기순이익 / 매출액 × 100
 
-**Twelve Data (무료)**
-- 8 requests/min ⚠️
-- 일일 제한: 800 requests
+### 안정성 지표
+- **부채비율** = 부채총계 / 자본총계 × 100
 
-## 증분 업데이트 동작 방식
-
-```
-Timeline:
-─────────────────────────────────────────────
-2024-01-01  첫 수집     → 2023-01-01 ~ 2024-01-01 (1년치)
-2024-01-15  증분 수집   → 2024-01-02 ~ 2024-01-15 (14일치만)
-2024-02-01  증분 수집   → 2024-01-16 ~ 2024-02-01 (17일치만)
-```
-
-**장점:**
-- ✅ API 호출 수 대폭 감소
-- ✅ 수집 시간 단축 (1년 → 며칠)
-- ✅ 비용 절감
+### 밸류에이션 지표
+- **PER** (주가수익비율) = 시가총액 / 당기순이익
+- **PBR** (주가순자산비율) = 시가총액 / 자본총계
+- **PSR** (주가매출비율) = 시가총액 / 매출액
 
 ## 권장 워크플로우
 
 ### Phase 1: 초기 설정 (첫날)
 
 ```bash
-# 1. 미국 주식 리스트 수집
-curl -X POST "http://localhost:8001/api/v1/us/collect/all-stocks"
-
-# 2. 한국 주식 리스트 수집
+# 1. 종목 리스트 수집
 curl -X POST "http://localhost:8001/api/v1/korea/collect/stocks?market=KOSPI"
 curl -X POST "http://localhost:8001/api/v1/korea/collect/stocks?market=KOSDAQ"
 
-# 3. 소규모 테스트 (2개 종목)
-curl -X POST "http://localhost:8001/api/v1/batch/collect/us" \
-  -H "Content-Type: application/json" \
-  -d '{"tickers": ["AAPL", "MSFT"], "incremental": true}'
+# 2. 소규모 테스트
+curl -X POST "http://localhost:8001/api/v1/batch/collect/korea/KOSPI?incremental=true&max_stocks=10"
 ```
 
 ### Phase 2: 본격 수집 (야간/주말)
 
 ```bash
-# NYSE + NASDAQ 가격 데이터 수집 (약 14시간)
-curl -X POST "http://localhost:8001/api/v1/batch/collect/us" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "collect_all": true,
-    "markets": ["NYSE", "NASDAQ"],
-    "incremental": true
-  }'
+# 3. 전체 주가/시장 데이터 수집
+curl -X POST "http://localhost:8001/api/v1/batch/collect/korea/KOSPI?incremental=true"
+curl -X POST "http://localhost:8001/api/v1/batch/collect/korea/KOSDAQ?incremental=true"
+
+# 4. 재무제표 수집
+curl -X POST "http://localhost:8001/api/v1/financial/batch/collect-all?start_year=2023&end_year=2025"
+
+# 5. 재무비율 계산
+curl -X POST "http://localhost:8001/api/v1/financial/ratios/batch-calculate"
 ```
 
-### Phase 3: 자동화
+### Phase 3: 품질 확인
 
 ```bash
-# 스케줄러 활성화 (매일 자동 증분 업데이트)
-curl -X POST "http://localhost:8001/api/v1/scheduler/start"
+# 6. 데이터 품질 확인
+curl "http://localhost:8001/api/v1/data-quality/summary"
+curl "http://localhost:8001/api/v1/batch/stats"
 ```
 
 ## 개발 가이드
-
-### 테스트 실행
-
-```bash
-# 단위 테스트
-pytest tests/
-
-# 개별 API 테스트
-python test/test_finnhub_auth.py
-python test/test_pykrx.py
-```
 
 ### 코드 포맷팅
 
@@ -355,53 +365,63 @@ black app/
 isort app/
 ```
 
+### DB 마이그레이션
+
+```bash
+# fiscal_date, report_type 추가
+python test/migrate_add_fiscal_fields.py
+
+# date 컬럼 제거
+python test/fix_date_column.py
+
+# unique key 수정
+python test/fix_unique_key.py
+```
+
 ## 로드맵
 
 ### ✅ 완료
 - [x] 한국 시장 데이터 수집 (KOSPI, KOSDAQ)
-- [x] 미국 시장 데이터 수집 (전체 US)
+- [x] 주가 데이터 수집
+- [x] 시장 데이터 수집 (시가총액, 거래대금)
+- [x] 재무제표 데이터 수집 (DART API)
+- [x] 재무비율 자동 계산
 - [x] 배치 수집 API
 - [x] 증분 업데이트 기능
-- [x] Market 필터링
-- [x] 스케줄러 자동화
-- [x] Request Body 기반 API
+- [x] 데이터 품질 검증
 
 ### 🔜 예정
-- [ ] 재무제표 데이터 수집
 - [ ] ChromaDB 벡터 저장소 연동
-- [ ] RAG 파이프라인 구축
+- [ ] RAG 파이프라인 구축 (Stormlands)
+- [ ] React 프론트엔드 (Westerlands)
 - [ ] 로깅 시스템 강화
 - [ ] API 인증/인가
-- [ ] 데이터 검증 로직
 
 ### 🔮 향후 계획
 - [ ] LLM 기반 분석 (Ollama 연동)
-- [ ] React 프론트엔드
-- [ ] 실시간 알림
+- [ ] 종목 스크리닝 기능
 - [ ] 포트폴리오 관리
+- [ ] 실시간 알림
 
 ## 문제 해결
 
-### Q: Finnhub 401 Unauthorized 에러
+### Q: DART API 에러
 
 **A:** API 키 확인
-```bash
-# 테스트 스크립트 실행
-python test/test_finnhub_auth.py
-```
+- `.env` 파일의 `DART_API_KEY` 확인
+- https://opendart.fss.or.kr/ 에서 키 상태 확인
 
-### Q: Twelve Data 속도 제한
+### Q: 재무비율이 NULL로 저장됨
 
-**A:** 8 requests/min 제약으로 인해 대량 수집 시 시간이 오래 걸립니다.
-- 권장: 야간/주말에 수집
-- 또는: 유료 플랜 고려
+**A:** 시가총액 데이터 확인
+- PER, PBR, PSR은 시가총액이 필요합니다
+- 시장 데이터 먼저 수집: `/api/v1/korea/collect/market-data`
 
-### Q: 증분 업데이트가 안 됨
+### Q: 품질 점수가 낮음
 
-**A:** `incremental=true` 확인 및 DB에 기존 데이터 존재 확인
-```bash
-curl "http://localhost:8001/api/v1/stocks/{ticker}/prices?limit=1"
-```
+**A:** 정상입니다
+- 우선주, ETF 등 재무제표가 없는 종목이 많습니다
+- 보통주만 필터링하거나 증분 수집을 활용하세요
 
 ## 기여
 
@@ -411,10 +431,6 @@ curl "http://localhost:8001/api/v1/stocks/{ticker}/prices?limit=1"
 
 개인 프로젝트 (MIT License)
 
-## 연락처
-
-문의사항이 있으시면 Issue를 등록해주세요.
-
 ---
 
-**Built with ❤️ for Financial Data Analysis**
+**Built with ❤️ for Korean Financial Data Analysis**

@@ -13,11 +13,9 @@ class FinancialStatement(Base):
     stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False, index=True)
     fiscal_year = Column(Integer, nullable=False, index=True)
     fiscal_quarter = Column(Integer)  # 1~3, NULL이면 연간
-    fiscal_date = Column(Date, nullable=False, index=True)  # 재무제표 기준일 (신규 추가)
-    report_type = Column(String(20), nullable=False, index=True)  # annual, Q1, Q2, Q3 (신규 추가)
-    statement_type = Column(String(20), nullable=False)  # IS, BS, CF (레거시, 호환용)
-    report_date = Column(Date, nullable=False, index=True)  # 보고서 제출일 (레거시, 호환용)
-
+    fiscal_date = Column(Date, nullable=False, index=True)  # 재무제표 기준일
+    report_type = Column(String(20), nullable=False, index=True)  # annual, Q1, Q2, Q3
+    report_date = Column(Date, nullable=False, index=True)  # 보고서 제출일
 
     # 손익계산서
     revenue = Column(DECIMAL(20, 2))
@@ -40,7 +38,7 @@ class FinancialStatement(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     def __repr__(self):
-        return f"<FinancialStatement(stock_id={self.stock_id}, year={self.fiscal_year}, type={self.statement_type})>"
+        return f"<FinancialStatement(stock_id={self.stock_id}, year={self.fiscal_year}, type={self.report_type})>"
 
 
 class FinancialRatio(Base):
@@ -50,24 +48,22 @@ class FinancialRatio(Base):
 
     id = Column(BigInteger, primary_key=True, index=True)
     stock_id = Column(Integer, ForeignKey("stocks.id", ondelete="CASCADE"), nullable=False, index=True)
-    fiscal_date = Column(Date, nullable=False, index=True)  # 재무제표 기준일 (변경: date -> fiscal_date)
-    report_type = Column(String(20), nullable=False, index=True)  # annual, Q1, Q2, Q3 (신규 추가)
+    fiscal_date = Column(Date, nullable=False, index=True)  # 재무제표 기준일
+    report_type = Column(String(20), nullable=False, index=True)  # annual, Q1, Q2, Q3
 
     # 수익성
-    roe = Column(DECIMAL(10, 4))
-    roa = Column(DECIMAL(10, 4))
-    operating_margin = Column(DECIMAL(10, 4))
-    net_margin = Column(DECIMAL(10, 4))
+    roe = Column(DECIMAL(10, 4))  # ROE (%)
+    roa = Column(DECIMAL(10, 4))  # ROA (%)
+    operating_margin = Column(DECIMAL(10, 4))  # 영업이익률 (%)
+    net_margin = Column(DECIMAL(10, 4))  # 순이익률 (%)
 
     # 안정성
-    debt_ratio = Column(DECIMAL(10, 4))
-    current_ratio = Column(DECIMAL(10, 4))
-    quick_ratio = Column(DECIMAL(10, 4))
+    debt_ratio = Column(DECIMAL(10, 4))  # 부채비율 (%)
 
     # 밸류에이션
-    per = Column(DECIMAL(10, 4))
-    pbr = Column(DECIMAL(10, 4))
-    psr = Column(DECIMAL(10, 4))
+    per = Column(DECIMAL(10, 4))  # PER
+    pbr = Column(DECIMAL(10, 4))  # PBR
+    psr = Column(DECIMAL(10, 4))  # PSR
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

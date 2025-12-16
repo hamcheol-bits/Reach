@@ -322,10 +322,24 @@ class FinancialRatioCalculator:
             성공 여부
         """
         try:
+            # report_type 결정 (fiscal_quarter 기반)
+            fiscal_quarter = ratios.get('fiscal_quarter')
+            if fiscal_quarter is None:
+                report_type = 'annual'
+            elif fiscal_quarter == 1:
+                report_type = 'Q1'
+            elif fiscal_quarter == 2:
+                report_type = 'Q2'
+            elif fiscal_quarter == 3:
+                report_type = 'Q3'
+            else:
+                report_type = 'annual'  # 예외 처리
+
             # 기존 데이터 확인
             existing = db.query(FinancialRatio).filter(
                 FinancialRatio.stock_id == stock_id,
-                FinancialRatio.fiscal_date == ratios['date']
+                FinancialRatio.fiscal_date == ratios['date'],
+                FinancialRatio.report_type == report_type
             ).first()
 
             ratio_data = {
@@ -349,7 +363,7 @@ class FinancialRatioCalculator:
                 ratio = FinancialRatio(
                     stock_id=stock_id,
                     fiscal_date=ratios['date'],
-                    report_type=ratios.get('period', 'annual'),  # 신규 추가
+                    report_type=report_type,
                     roe=Decimal(str(ratio_data['roe'])) if ratio_data['roe'] is not None else None,
                     roa=Decimal(str(ratio_data['roa'])) if ratio_data['roa'] is not None else None,
                     operating_margin=Decimal(str(ratio_data['operating_margin'])) if ratio_data['operating_margin'] is not None else None,
