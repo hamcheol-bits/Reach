@@ -284,6 +284,20 @@ class DartApiService:
             financial_data = self.parse_financial_data(df)
 
             # 6. DB 저장
+            # fiscal_date 계산 (연간: 12/31, 분기: 해당 분기 말일)
+            if quarter is None:
+                fiscal_date = datetime(year, 12, 31).date()
+                report_type = 'annual'
+            else:
+                # 분기별 말일
+                quarter_end_months = {1: 3, 2: 6, 3: 9}
+                month = quarter_end_months.get(quarter, 12)
+                day = 31 if month in [3, 12] else 30
+                fiscal_date = datetime(year, month, day).date()
+                report_type = f'Q{quarter}'
+
+            report_date = datetime(year, 12, 31).date()  # 임시 (실제로는 공시일 사용)
+
             # 기존 데이터 확인
             existing = db.query(FinancialStatement).filter(
                 FinancialStatement.stock_id == stock.id,
@@ -291,20 +305,22 @@ class DartApiService:
                 FinancialStatement.fiscal_quarter == quarter
             ).first()
 
-            report_date = datetime(year, 12, 31).date()  # 임시 (실제로는 공시일 사용)
-
             if existing:
                 # 업데이트
                 for key, value in financial_data.items():
                     if value is not None:
                         setattr(existing, key, value)
+                # fiscal_date, report_type도 업데이트
+                existing.fiscal_date = fiscal_date
+                existing.report_type = report_type
             else:
                 # 신규 생성
                 statement = FinancialStatement(
                     stock_id=stock.id,
                     fiscal_year=year,
                     fiscal_quarter=quarter,
-                    statement_type='ALL',  # 통합
+                    fiscal_date=fiscal_date,
+                    report_type=report_type,
                     report_date=report_date,
                     currency='KRW',
                     **financial_data

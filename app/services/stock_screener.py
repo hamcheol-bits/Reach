@@ -98,9 +98,12 @@ class StockScreener:
                 )
             )
             .outerjoin(
+                latest_market_cap_sq,
+                Stock.id == latest_market_cap_sq.c.stock_id
+            )
+            .outerjoin(
                 StockMarketData,
                 and_(
-                    Stock.id == StockMarketData.stock_id,
                     StockMarketData.stock_id == latest_market_cap_sq.c.stock_id,
                     StockMarketData.trade_date == latest_market_cap_sq.c.latest_date
                 )
@@ -213,9 +216,12 @@ class StockScreener:
                 )
             )
             .outerjoin(
+                latest_market_cap_sq,
+                Stock.id == latest_market_cap_sq.c.stock_id
+            )
+            .outerjoin(
                 StockMarketData,
                 and_(
-                    Stock.id == StockMarketData.stock_id,
                     StockMarketData.stock_id == latest_market_cap_sq.c.stock_id,
                     StockMarketData.trade_date == latest_market_cap_sq.c.latest_date
                 )
@@ -322,9 +328,12 @@ class StockScreener:
                 )
             )
             .outerjoin(
+                latest_market_cap_sq,
+                Stock.id == latest_market_cap_sq.c.stock_id
+            )
+            .outerjoin(
                 StockMarketData,
                 and_(
-                    Stock.id == StockMarketData.stock_id,
                     StockMarketData.stock_id == latest_market_cap_sq.c.stock_id,
                     StockMarketData.trade_date == latest_market_cap_sq.c.latest_date
                 )
@@ -449,9 +458,12 @@ class StockScreener:
                 )
             )
             .outerjoin(
+                latest_market_cap_sq,
+                Stock.id == latest_market_cap_sq.c.stock_id
+            )
+            .outerjoin(
                 StockMarketData,
                 and_(
-                    Stock.id == StockMarketData.stock_id,
                     StockMarketData.stock_id == latest_market_cap_sq.c.stock_id,
                     StockMarketData.trade_date == latest_market_cap_sq.c.latest_date
                 )
